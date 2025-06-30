@@ -1,6 +1,6 @@
-// mcp/types/mcp/tool.ts
+// mcp/src/types/mcp/tool.ts
 import { z } from "zod";
-import { LocatorSchema } from "./locator";
+import { LocatorSchema } from "./locator.js";
 
 export const ClickTool = z.object({
   name: z.literal("browser_click"),
@@ -98,4 +98,23 @@ export const ScreenshotTool = z.object({
     name: z.literal("browser_screenshot"),
     description: z.literal("Takes a screenshot of the current viewport, useful for debugging or visual verification."),
     arguments: z.object({}),
+});
+
+export const ListTabsTool = z.object({
+  name: z.literal("browser_list_tabs"),
+  description: z.literal(
+    "Lists all open, automatable (http/https) tabs. Provides IDs needed for `browser_set_active_tab` as well as contextual information like title, URL, and state (active, audible, pinned). This should be the first step in any workflow that needs to select a specific tab."
+  ),
+  arguments: z.object({}),
+});
+
+export const SetActiveTabTool = z.object({
+  name: z.literal("browser_set_active_tab"),
+  description: z.literal(
+    "Sets a specific tab as the target for all subsequent automation commands. Must be called after `browser_list_tabs` and before actions like `click` or `type` can be used on a specific tab."
+  ),
+  arguments: z.object({
+    tabId: z.number().describe("The ID of the tab to activate, obtained from the `browser_list_tabs` tool."),
+    focus: z.boolean().optional().default(true).describe("If true (default), the tab and its window will be brought to the foreground. Set to false to target a tab for potential background actions without disturbing the user."),
+  }),
 });
