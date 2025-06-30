@@ -1,4 +1,4 @@
-#!/usr/-bin/env node
+#!/usr/bin/env node
 // ./mcp/src/index.ts
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";

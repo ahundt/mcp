@@ -26,14 +26,22 @@ export const snapshot: Tool = {
 
 export const click: Tool = {
     schema: {
-    name: ClickTool.shape.name.value,
-    description: ClickTool.shape.description.value,
-    inputSchema: zodToJsonSchema(ClickTool.shape.arguments),
+        name: ClickTool.shape.name.value,
+        description: ClickTool.shape.description.value,
+        inputSchema: zodToJsonSchema(ClickTool.shape.arguments),
     },
     handle: async (context: Context, params) => {
-    const validatedParams = ClickTool.shape.arguments.parse(params);
-    await context.sendSocketMessage("browser_click", { locator: validatedParams.locator });
-    return await captureAriaSnapshot(context, `Clicked element found via ${stringifyLocator(validatedParams.locator)}`);
+        const validatedParams = ClickTool.shape.arguments.parse(params);
+        const locatorText = stringifyLocator(validatedParams.locator);
+        const response = await context.sendSocketMessage("browser_click", { locator: validatedParams.locator });
+        if (!response?.success) {
+            throw new Error(
+                `Action 'browser_click' failed for locator: ${locatorText}.` +
+                (response?.error ? ` Reason: ${response.error}` : "") +
+                ` Full response: ${JSON.stringify(response)}`
+            );
+        }
+        return await captureAriaSnapshot(context, `Clicked element found via ${locatorText}`);
     },
 };
 
@@ -45,58 +53,89 @@ export const drag: Tool = {
     },
     handle: async (context: Context, params) => {
         const validatedParams = DragTool.shape.arguments.parse(params);
-        await context.sendSocketMessage("browser_drag", {
+        const startLocatorText = stringifyLocator(validatedParams.startElement);
+        const endLocatorText = stringifyLocator(validatedParams.endElement);
+        const response = await context.sendSocketMessage("browser_drag", {
             startElement: validatedParams.startElement,
             endElement: validatedParams.endElement,
         });
-        const startLocatorText = stringifyLocator(validatedParams.startElement);
-        const endLocatorText = stringifyLocator(validatedParams.endElement);
+        if (!response?.success) {
+            throw new Error(
+                `Action 'browser_drag' failed for start: ${startLocatorText}, end: ${endLocatorText}.` +
+                (response?.error ? ` Reason: ${response.error}` : "") +
+                ` Full response: ${JSON.stringify(response)}`
+            );
+        }
         return await captureAriaSnapshot(context, `Dragged element from ${startLocatorText} to ${endLocatorText}`);
     },
 };
 
 export const hover: Tool = {
     schema: {
-    name: HoverTool.shape.name.value,
-    description: HoverTool.shape.description.value,
-    inputSchema: zodToJsonSchema(HoverTool.shape.arguments),
+        name: HoverTool.shape.name.value,
+        description: HoverTool.shape.description.value,
+        inputSchema: zodToJsonSchema(HoverTool.shape.arguments),
     },
     handle: async (context: Context, params) => {
-    const validatedParams = HoverTool.shape.arguments.parse(params);
-    await context.sendSocketMessage("browser_hover", { locator: validatedParams.locator });
-    return await captureAriaSnapshot(context, `Hovered over element found via ${stringifyLocator(validatedParams.locator)}`);
+        const validatedParams = HoverTool.shape.arguments.parse(params);
+        const locatorText = stringifyLocator(validatedParams.locator);
+        const response = await context.sendSocketMessage("browser_hover", { locator: validatedParams.locator });
+        if (!response?.success) {
+            throw new Error(
+                `Action 'browser_hover' failed for locator: ${locatorText}.` +
+                (response?.error ? ` Reason: ${response.error}` : "") +
+                ` Full response: ${JSON.stringify(response)}`
+            );
+        }
+        return await captureAriaSnapshot(context, `Hovered over element found via ${locatorText}`);
     },
 };
 
 export const type: Tool = {
     schema: {
-    name: TypeTool.shape.name.value,
-    description: TypeTool.shape.description.value,
-    inputSchema: zodToJsonSchema(TypeTool.shape.arguments),
+        name: TypeTool.shape.name.value,
+        description: TypeTool.shape.description.value,
+        inputSchema: zodToJsonSchema(TypeTool.shape.arguments),
     },
     handle: async (context: Context, params) => {
-    const validatedParams = TypeTool.shape.arguments.parse(params);
-    await context.sendSocketMessage("browser_type", {
-        locator: validatedParams.locator,
-        text: validatedParams.text,
-        submit: validatedParams.submit,
-    });
-    return await captureAriaSnapshot(context, `Typed "${validatedParams.text}" into element found via ${stringifyLocator(validatedParams.locator)}`);
+        const validatedParams = TypeTool.shape.arguments.parse(params);
+        const locatorText = stringifyLocator(validatedParams.locator);
+        const response = await context.sendSocketMessage("browser_type", {
+            locator: validatedParams.locator,
+            text: validatedParams.text,
+            submit: validatedParams.submit,
+        });
+        if (!response?.success) {
+            throw new Error(
+                `Action 'browser_type' failed for locator: ${locatorText}.` +
+                (response?.error ? ` Reason: ${response.error}` : "") +
+                ` Full response: ${JSON.stringify(response)}`
+            );
+        }
+        return await captureAriaSnapshot(context, `Typed "${validatedParams.text}" into element found via ${locatorText}`);
     },
 };
 
 export const selectOption: Tool = {
     schema: {
-    name: SelectOptionTool.shape.name.value,
-    description: SelectOptionTool.shape.description.value,
-    inputSchema: zodToJsonSchema(SelectOptionTool.shape.arguments),
+        name: SelectOptionTool.shape.name.value,
+        description: SelectOptionTool.shape.description.value,
+        inputSchema: zodToJsonSchema(SelectOptionTool.shape.arguments),
     },
     handle: async (context: Context, params) => {
-    const validatedParams = SelectOptionTool.shape.arguments.parse(params);
-    await context.sendSocketMessage("browser_select_option", {
-        locator: validatedParams.locator,
-        values: validatedParams.values,
-    });
-    return await captureAriaSnapshot(context, `Selected option in element found via ${stringifyLocator(validatedParams.locator)}`);
+        const validatedParams = SelectOptionTool.shape.arguments.parse(params);
+        const locatorText = stringifyLocator(validatedParams.locator);
+        const response = await context.sendSocketMessage("browser_select_option", {
+            locator: validatedParams.locator,
+            values: validatedParams.values,
+        });
+        if (!response?.success) {
+            throw new Error(
+                `Action 'browser_select_option' failed for locator: ${locatorText}.` +
+                (response?.error ? ` Reason: ${response.error}` : "") +
+                ` Full response: ${JSON.stringify(response)}`
+            );
+        }
+        return await captureAriaSnapshot(context, `Selected option in element found via ${locatorText}`);
     },
 };
