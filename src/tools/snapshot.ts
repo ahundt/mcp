@@ -11,29 +11,26 @@ import {
 import type { Context } from "@/context.js";
 import { captureAriaSnapshot } from "@/utils/aria-snapshot.js";
 import { stringifyLocator } from "@/utils/locator.js";
-import type { Tool, ToolResult } from "./tool.js";
+import { makeCommonTool } from "./common.js";
+import type { Tool } from "./tool.js";
 
 /**
- * A helper function to handle responses from the browser extension.
- * If the response is not successful, it formats a detailed error ToolResult.
- * Otherwise, it returns null, allowing the caller to proceed.
- * @param actionName The name of the browser action (e.g., 'browser_click').
- * @param locatorText A string representation of the locator(s) used.
- * @param response The response object from the browser extension.
- * @returns A ToolResult object if the action failed, otherwise null.
+ * TOOL DESIGN PATTERN (FACTORY, NOT INHERITANCE)
+ * ------------------------------------------------
+ * This file uses the makeCommonTool factory from common.ts to create browser automation tools
+ * with shared logic for argument validation, error handling, and optional snapshotting.
+ *
+ * Each tool below is either:
+ *   - Created via makeCommonTool (inherits shared logic via composition)
+ *   - Custom (implements unique logic directly)
+ *
+ * See common.ts for full documentation of makeCommonTool usage and implementation.
  */
-export function handleBrowserResponse(actionName: string, locatorText: string, response: { success: boolean, error?: string } | undefined): ToolResult | null {
-    if (!response?.success) {
-        const reason = response?.error ?? "An unknown error occurred in the browser extension.";
-        const errorMessage = `Action '${actionName}' failed for locator(s): ${locatorText}. Reason: ${reason}`;
-        return {
-            content: [{ type: "text", text: errorMessage }],
-            isError: true,
-        };
-    }
-    return null;
-}
 
+/**
+ * Captures a full ARIA snapshot of the current page.
+ * Arguments: none
+ */
 export const snapshot: Tool = {
     schema: {
         name: SnapshotTool.shape.name.value,
@@ -45,105 +42,62 @@ export const snapshot: Tool = {
     },
 };
 
-export const click: Tool = {
-    schema: {
-        name: ClickTool.shape.name.value,
-        description: ClickTool.shape.description.value,
-        inputSchema: zodToJsonSchema(ClickTool.shape.arguments),
-    },
-    handle: async (context: Context, params) => {
-        const validatedParams = ClickTool.shape.arguments.parse(params);
-        const locatorText = stringifyLocator(validatedParams.locator);
-        const response = await context.sendSocketMessage("browser_click", { locator: validatedParams.locator });
+/**
+ * Clicks an element in the active browser tab, identified by a locator. Returns a snapshot after the click.
+ * Arguments: locator (any)
+ */
+export const click: Tool = makeCommonTool<{ locator: any }>(
+  "browser_click",
+  ClickTool,
+  ({ locator }) => ({ locator }),
+  ({ locator }) => `Clicked element found via ${stringifyLocator(locator)}`,
+  true
+);
 
-        const errorResult = handleBrowserResponse('browser_click', locatorText, response);
-        if (errorResult) return errorResult;
+/**
+ * Drags an element from a start locator to an end locator in the active browser tab. Returns a snapshot after the drag.
+ * Arguments: startElement (any), endElement (any)
+ */
+export const drag: Tool = makeCommonTool<{ startElement: any, endElement: any }>(
+  "browser_drag",
+  DragTool,
+  ({ startElement, endElement }) => ({ startElement, endElement }),
+  ({ startElement, endElement }) => `Dragged element from ${stringifyLocator(startElement)} to ${stringifyLocator(endElement)}`,
+  true
+);
 
-        return await captureAriaSnapshot(context, `Clicked element found via ${locatorText}`);
-    },
-};
+/**
+ * Hovers over an element in the active browser tab, identified by a locator. Returns a snapshot after the hover.
+ * Arguments: locator (any)
+ */
+export const hover: Tool = makeCommonTool<{ locator: any }>(
+  "browser_hover",
+  HoverTool,
+  ({ locator }) => ({ locator }),
+  ({ locator }) => `Hovered over element found via ${stringifyLocator(locator)}`,
+  true
+);
 
-export const drag: Tool = {
-    schema: {
-        name: DragTool.shape.name.value,
-        description: DragTool.shape.description.value,
-        inputSchema: zodToJsonSchema(DragTool.shape.arguments),
-    },
-    handle: async (context: Context, params) => {
-        const validatedParams = DragTool.shape.arguments.parse(params);
-        const startLocatorText = stringifyLocator(validatedParams.startElement);
-        const endLocatorText = stringifyLocator(validatedParams.endElement);
-        const locatorText = `start: ${startLocatorText}, end: ${endLocatorText}`;
+/**
+ * Types text into an element in the active browser tab, identified by a locator. Optionally submits after typing. Returns a snapshot after typing.
+ * Arguments: locator (any), text (string), submit? (boolean)
+ */
+export const type: Tool = makeCommonTool<{ locator: any, text: string, submit?: boolean }>(
+  "browser_type",
+  TypeTool,
+  ({ locator, text, submit }) => ({ locator, text, submit }),
+  ({ locator, text }) => `Typed "${text}" into element found via ${stringifyLocator(locator)}`,
+  true
+);
 
-        const response = await context.sendSocketMessage("browser_drag", {
-            startElement: validatedParams.startElement,
-            endElement: validatedParams.endElement,
-        });
-
-        const errorResult = handleBrowserResponse('browser_drag', locatorText, response);
-        if (errorResult) return errorResult;
-
-        return await captureAriaSnapshot(context, `Dragged element from ${startLocatorText} to ${endLocatorText}`);
-    },
-};
-
-export const hover: Tool = {
-    schema: {
-        name: HoverTool.shape.name.value,
-        description: HoverTool.shape.description.value,
-        inputSchema: zodToJsonSchema(HoverTool.shape.arguments),
-    },
-    handle: async (context: Context, params) => {
-        const validatedParams = HoverTool.shape.arguments.parse(params);
-        const locatorText = stringifyLocator(validatedParams.locator);
-        const response = await context.sendSocketMessage("browser_hover", { locator: validatedParams.locator });
-
-        const errorResult = handleBrowserResponse('browser_hover', locatorText, response);
-        if (errorResult) return errorResult;
-
-        return await captureAriaSnapshot(context, `Hovered over element found via ${locatorText}`);
-    },
-};
-
-export const type: Tool = {
-    schema: {
-        name: TypeTool.shape.name.value,
-        description: TypeTool.shape.description.value,
-        inputSchema: zodToJsonSchema(TypeTool.shape.arguments),
-    },
-    handle: async (context: Context, params) => {
-        const validatedParams = TypeTool.shape.arguments.parse(params);
-        const locatorText = stringifyLocator(validatedParams.locator);
-        const response = await context.sendSocketMessage("browser_type", {
-            locator: validatedParams.locator,
-            text: validatedParams.text,
-            submit: validatedParams.submit,
-        });
-
-        const errorResult = handleBrowserResponse('browser_type', locatorText, response);
-        if (errorResult) return errorResult;
-
-        return await captureAriaSnapshot(context, `Typed "${validatedParams.text}" into element found via ${locatorText}`);
-    },
-};
-
-export const selectOption: Tool = {
-    schema: {
-        name: SelectOptionTool.shape.name.value,
-        description: SelectOptionTool.shape.description.value,
-        inputSchema: zodToJsonSchema(SelectOptionTool.shape.arguments),
-    },
-    handle: async (context: Context, params) => {
-        const validatedParams = SelectOptionTool.shape.arguments.parse(params);
-        const locatorText = stringifyLocator(validatedParams.locator);
-        const response = await context.sendSocketMessage("browser_select_option", {
-            locator: validatedParams.locator,
-            values: validatedParams.values,
-        });
-
-        const errorResult = handleBrowserResponse('browser_select_option', locatorText, response);
-        if (errorResult) return errorResult;
-
-        return await captureAriaSnapshot(context, `Selected option in element found via ${locatorText}`);
-    },
-};
+/**
+ * Selects an option in a dropdown or select element in the active browser tab, identified by a locator. Returns a snapshot after selection.
+ * Arguments: locator (any), values (any)
+ */
+export const selectOption: Tool = makeCommonTool<{ locator: any, values: any }>(
+  "browser_select_option",
+  SelectOptionTool,
+  ({ locator, values }) => ({ locator, values }),
+  ({ locator }) => `Selected option in element found via ${stringifyLocator(locator)}`,
+  true
+);
