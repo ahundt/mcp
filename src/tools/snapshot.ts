@@ -7,7 +7,7 @@ import {
     SelectOptionTool,
     SnapshotTool,
     TypeTool,
-} from "@repo/types/mcp/tool";
+} from "../../types/mcp/tool.js";
 import type { Context } from "@/context";
 import { captureAriaSnapshot } from "@/utils/aria-snapshot";
 import { stringifyLocator } from "@/utils/locator";

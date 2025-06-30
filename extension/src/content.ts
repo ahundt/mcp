@@ -1,5 +1,5 @@
 // src/content.ts
-import { findElementByLocator } from "./element-resolver";
+import { findElementByLocator } from "./element-resolver.js";
 
 /**
  * Listens for messages from the background script (forwarded from the MCP server)

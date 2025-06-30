@@ -1,5 +1,5 @@
-// extension/src/element-resolver.ts
-import { Locator } from "@repo/types/mcp/locator";
+// mcp/extension/src/element-resolver.ts
+import type { Locator } from "../../types/mcp/locator.js";
 
 /**
  * Finds a single HTMLElement in the document using various heuristic strategies.
@@ -13,17 +13,19 @@ export function findElementByLocator(locator: Locator): HTMLElement | null {
    * Searches for an element within a given document context (main document or a shadow root).
    * @param doc The document or shadow root to search within.
    */
-  const searchContext = (doc: Document | ShadowRoot): HTMLElement | null => {
+  const searchInContext = (doc: Document | ShadowRoot): HTMLElement | null => {
     switch (locator.using) {
       case "ref":
-        return doc.querySelector(`[data-mcp-ref="${locator.value}"]`);
+        return doc.querySelector<HTMLElement>(`[data-mcp-ref="${locator.value}"]`);
       case "css":
-        return doc.querySelector(locator.selector);
+        return doc.querySelector<HTMLElement>(locator.selector);
       case "aria-role":
+        // Find all elements with the given role and then filter by the accessible name.
+        // This is more robust than trying to cram everything into one selector.
         return Array.from(doc.querySelectorAll<HTMLElement>(`[role="${locator.role}"]`))
           .find(el => el.ariaLabel?.trim() === locator.name || el.textContent?.trim() === locator.name) ?? null;
       case "placeholder":
-        return doc.querySelector(`[placeholder="${locator.text}"]`);
+        return doc.querySelector<HTMLElement>(`[placeholder="${locator.text}"]`);
       case "label":
         const labels = Array.from(doc.querySelectorAll('label'));
         const targetLabel = labels.find(l => l.textContent?.trim() === locator.text);
@@ -50,8 +52,8 @@ export function findElementByLocator(locator: Locator): HTMLElement | null {
    * Recursively searches the main document and any nested shadow DOMs.
    * @param context The current search context, starting with the main document.
    */
-  const search = (context: Document | ShadowRoot): HTMLElement | null => {
-      const foundInCurrentContext = searchContext(context);
+  const recursiveSearch = (context: Document | ShadowRoot): HTMLElement | null => {
+      const foundInCurrentContext = searchInContext(context);
       if (foundInCurrentContext) {
           return foundInCurrentContext;
       }
@@ -60,7 +62,7 @@ export function findElementByLocator(locator: Locator): HTMLElement | null {
       const allElements = context.querySelectorAll('*');
       for (const element of allElements) {
           if (element.shadowRoot) {
-              const foundInShadow = search(element.shadowRoot);
+              const foundInShadow = recursiveSearch(element.shadowRoot);
               if (foundInShadow) {
                   return foundInShadow;
               }
@@ -69,5 +71,5 @@ export function findElementByLocator(locator: Locator): HTMLElement | null {
       return null; // Nothing found in this context or any of its children.
   };
 
-  return search(document);
+  return recursiveSearch(document);
 }
