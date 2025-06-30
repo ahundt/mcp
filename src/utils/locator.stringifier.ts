@@ -1,5 +1,5 @@
 // ./mcp/src/utils/locator.ts
-import type { Locator } from "../../types/mcp/locator.js";
+import type { Locator } from "@/types/mcp/locator.js";
 
 /**
  * Converts a Locator object into a human-readable string for logging and debugging.

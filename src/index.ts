@@ -10,7 +10,7 @@ import * as common from "@/tools/common";
 import * as custom from "@/tools/custom";
 import * as snapshotTools from "@/tools/snapshot";
 import type { Tool } from "@/tools/tool";
-import packageJSON from "../package.json";
+import packageJSON from "@/package.json";
 
 function setupExitWatchdog(server: Server) {
     process.stdin.on("close", async () => {
