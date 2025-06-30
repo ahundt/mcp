@@ -8,30 +8,21 @@ import {
   WaitTool,
   ListTabsTool,
   SetActiveTabTool,
-} from "@/types/mcp/tool.js";
-import type { TabInfo, SetActiveTabError } from "@/types/messages/ws.js";
+} from "@/types/mcp/tool.schemas.js";
+import type { TabInfo, SetActiveTabError } from "@/types/messages/ws.types.js";
 import type { Context } from "@/context.js";
 import { captureAriaSnapshot } from "@/utils/aria-snapshot.js";
-import type { Tool, ToolFactory } from "./tool.js";
+import type { Tool, ToolFactory, ToolResult } from "./tool.interface.js";
 
-export const navigate: ToolFactory = (snapshot) => ({
-  schema: {
-    name: NavigateTool.shape.name.value,
-    description: NavigateTool.shape.description.value,
-    inputSchema: zodToJsonSchema(NavigateTool.shape.arguments),
-  },
-  handle: async (context, params) => {
-    const { url } = NavigateTool.shape.arguments.parse(params);
-    const response = await context.sendSocketMessage("browser_navigate", { url });
-    if (!response?.success) {
-      throw new Error(`Navigation failed: ${response.error}`);
-    }
-    if (snapshot) {
-      return captureAriaSnapshot(context, `Navigate to ${url}`);
-    }
-    return { content: [{ type: "text", text: `Navigate to ${url}` }] };
-  },
-});
+// This is a shared helper function for navigation tools.
+// Unlike element interactions, navigation failures in the extension are often
+// un-recoverable (e.g., no active tab). So we throw an error which gets caught
+// by the main server loop and reported to the user.
+function handleNavigationResponse(response: { success: boolean, error?: string } | undefined, action: string) {
+  if (!response?.success) {
+    throw new Error(`Action '${action}' failed in the browser extension. Reason: ${response?.error || 'Unknown error'}`);
+  }
+}
 
 export const listTabs: Tool = {
   schema: {
@@ -78,13 +69,12 @@ export const navigate: ToolFactory = (snapshot) => ({
   },
   handle: async (context, params) => {
     const { url } = NavigateTool.shape.arguments.parse(params);
-    await context.sendSocketMessage("browser_navigate", { url });
+    const response = await context.sendSocketMessage("browser_navigate", { url });
+    handleNavigationResponse(response, "browser_navigate"); // Throws on failure
     if (snapshot) {
       return captureAriaSnapshot(context, `Navigated to ${url}`);
     }
-    return {
-      content: [{ type: "text", text: `Navigated to ${url}` }],
-    };
+    return { content: [{ type: "text", text: `Navigated to ${url}` }] };
   },
 });
 
@@ -95,13 +85,12 @@ export const goBack: ToolFactory = (snapshot) => ({
     inputSchema: zodToJsonSchema(GoBackTool.shape.arguments),
   },
   handle: async (context) => {
-    await context.sendSocketMessage("browser_go_back", {});
+    const response = await context.sendSocketMessage("browser_go_back", {});
+    handleNavigationResponse(response, "browser_go_back");
     if (snapshot) {
       return captureAriaSnapshot(context, "Navigated back");
     }
-    return {
-      content: [{ type: "text", text: "Navigated back" }],
-    };
+    return { content: [{ type: "text", text: "Navigated back" }] };
   },
 });
 
@@ -112,13 +101,12 @@ export const goForward: ToolFactory = (snapshot) => ({
     inputSchema: zodToJsonSchema(GoForwardTool.shape.arguments),
   },
   handle: async (context) => {
-    await context.sendSocketMessage("browser_go_forward", {});
+    const response = await context.sendSocketMessage("browser_go_forward", {});
+    handleNavigationResponse(response, "browser_go_forward");
     if (snapshot) {
       return captureAriaSnapshot(context, "Navigated forward");
     }
-    return {
-      content: [{ type: "text", text: "Navigated forward" }],
-    };
+    return { content: [{ type: "text", text: "Navigated forward" }] };
   },
 });
 

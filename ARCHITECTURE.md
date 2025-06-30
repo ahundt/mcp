@@ -4,32 +4,19 @@ This document outlines the file structure and data flow of the Browser MCP serve
 
 ## Directory Structure
 
-The project is self-contained within the `mcp/` directory.
+The project's source code is self-contained within the `mcp/src/` directory, which is the `rootDir` for the TypeScript compiler. It is organized as follows:
 
-- **/mcp/src/**: Contains all Node.js server-side code, shared types, and browser extension code. This is the MCP server that communicates with AI clients via stdio and with the browser extension via WebSockets.
-    - `src/index.ts`: The main entry point for the server.
-    - `src/tools/`: Defines the capabilities (tools) that the AI can call, such as `click`, `type`, and `Maps`.
-    - `src/types/`: Contains all shared TypeScript type definitions used by both the server and the browser extension. This is the definitive contract for how different parts of the system communicate.
-        - `src/types/mcp/`: Locator and tool type definitions.
-        - `src/types/messages/`: WebSocket message type definitions.
-    - `src/extension/src/`: Contains all the code for the Chrome Browser Extension.
-        - `background.ts`: The extension's service worker. It manages the WebSocket connection to the server and handles browser-level commands (like managing tabs and windows).
-        - `content.ts`: The extension's content script. It is injected into web pages and is responsible for all direct DOM manipulation (finding elements, clicking, typing).
-        - `element-resolver.ts`: A utility used by the content script to translate semantic `Locator` objects into actual DOM elements.
+-   **/src/tools/**: Defines the capabilities (tools) that the AI can call.
+-   **/src/types/**: Contains all shared TypeScript type definitions (Zod schemas and type aliases) used by both the server and the extension. This is the definitive contract for the system.
+-   **/src/extension/src/**: Contains all the code for the Chrome Browser Extension.
+    -   `background.ts`: The extension's service worker. Manages the WebSocket connection and routes all commands.
+    -   `content.ts`: The content script. Injected into pages to perform all DOM interactions.
+    -   `element-resolver.ts`: A utility to find DOM elements based on semantic locators.
+-   **/src/utils/**: Contains server-side utility functions.
+-   **Other files** in `/src/` constitute the core MCP server logic.
 
-## Data Flow for a `click` Action
+## AI Automation Workflow
 
-1.  **AI Client -> Server:** The AI client sends a `callTool` request for `browser_click` with a `Locator` object as an argument.
-2.  **Server (`/src`):**
-    -   `server.ts` receives the request.
-    -   The tool handler in `src/tools/snapshot.ts` validates the `Locator`.
-    -   It sends a `browser_click` message, containing the `Locator`, over the WebSocket to the connected extension.
-3.  **Browser Extension (`src/extension/src/`):**
-    -   `background.ts` receives the WebSocket message. It identifies it as a DOM command and forwards it to the content script in the appropriate tab.
-    -   `content.ts` receives the message. It uses `element-resolver.ts` to find the DOM element described by the `Locator`.
-    -   It performs the `.click()` action.
-    -   It sends a response message back to the background script, e.g., `{ success: true }`.
-4.  **Server (`/src`):**
-    -   The background script forwards the response to the server via the WebSocket.
-    -   The tool handler in `src/tools/snapshot.ts` receives the `{ success: true }` response.
-    -   Seeing that the action succeeded, it captures a new page snapshot and returns it to the AI client as the result of the tool call.
+1.  **Discovery:** The AI agent calls `browser_list_tabs()` to get a list of all open, automatable web pages.
+2.  **Activation:** The AI chooses a target and calls `browser_set_active_tab({ tabId: ... })` to designate it as the target for automation. The extension brings this tab into focus and provides visual feedback.
+3.  **Interaction:** The AI can now call any number of DOM-interaction tools (`browser_click`, `browser_type`, etc.), which will be reliably routed to the active tab.
