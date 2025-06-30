@@ -1,17 +1,74 @@
+// mcp/src/tools/common.ts
 import { zodToJsonSchema } from "zod-to-json-schema";
-
 import {
   GoBackTool,
   GoForwardTool,
   NavigateTool,
   PressKeyTool,
   WaitTool,
-} from "../../types/mcp/tool.js";
+  ListTabsTool,
+  SetActiveTabTool,
+} from "@/types/mcp/tool.js";
+import type { TabInfo, SetActiveTabError } from "@/types/messages/ws.js";
+import type { Context } from "@/context.js";
+import { captureAriaSnapshot } from "@/utils/aria-snapshot.js";
+import type { Tool, ToolFactory } from "./tool.js";
 
-import { captureAriaSnapshot } from "@/utils/aria-snapshot";
+export const navigate: ToolFactory = (snapshot) => ({
+  schema: {
+    name: NavigateTool.shape.name.value,
+    description: NavigateTool.shape.description.value,
+    inputSchema: zodToJsonSchema(NavigateTool.shape.arguments),
+  },
+  handle: async (context, params) => {
+    const { url } = NavigateTool.shape.arguments.parse(params);
+    const response = await context.sendSocketMessage("browser_navigate", { url });
+    if (!response?.success) {
+      throw new Error(`Navigation failed: ${response.error}`);
+    }
+    if (snapshot) {
+      return captureAriaSnapshot(context, `Navigate to ${url}`);
+    }
+    return { content: [{ type: "text", text: `Navigate to ${url}` }] };
+  },
+});
 
-import type { Tool, ToolFactory } from "./tool";
-import type { Context } from "@/context";
+export const listTabs: Tool = {
+  schema: {
+    name: ListTabsTool.shape.name.value,
+    description: ListTabsTool.shape.description.value,
+    inputSchema: zodToJsonSchema(ListTabsTool.shape.arguments),
+  },
+  handle: async (context) => {
+    const response = await context.sendSocketMessage("browser_list_tabs", {});
+    if (!response?.success) {
+      throw new Error(`Action 'browser_list_tabs' failed. Reason: ${response.error}`);
+    }
+    const tabs = response.tabs as TabInfo[];
+    const formattedTabs = tabs.map(t =>
+      `  - ID: ${t.tabId}, Active for Automation: ${t.isActiveForAutomation}, Title: "${t.title}", URL: ${t.url}`
+    ).join('\n');
+    return { content: [{ type: "text", text: `Available Tabs:\n${formattedTabs}` }] };
+  },
+};
+
+export const setActiveTab: Tool = {
+  schema: {
+    name: SetActiveTabTool.shape.name.value,
+    description: SetActiveTabTool.shape.description.value,
+    inputSchema: zodToJsonSchema(SetActiveTabTool.shape.arguments),
+  },
+  handle: async (context, params) => {
+    const { tabId, focus } = SetActiveTabTool.shape.arguments.parse(params);
+    const response = await context.sendSocketMessage("browser_set_active_tab", { tabId, focus });
+    if (!response?.success) {
+        const error = response.error as SetActiveTabError | undefined;
+        const reason = error ? `Code: ${error.code}, Message: ${error.message}` : "Unknown error.";
+        throw new Error(`Action 'browser_set_active_tab' failed for tabId ${tabId}. Reason: ${reason}`);
+    }
+    return { content: [{ type: "text", text: `Active automation tab set to ${tabId}.` }] };
+  },
+};
 
 export const navigate: ToolFactory = (snapshot) => ({
   schema: {

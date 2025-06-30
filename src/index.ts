@@ -21,6 +21,7 @@ function setupExitWatchdog(server: Server) {
 }
 
 // This list now correctly references all the tools from the updated files.
+
 const allTools: Tool[] = [
     // Snapshot/Interaction tools
     snapshotTools.snapshot,
@@ -30,11 +31,13 @@ const allTools: Tool[] = [
     snapshotTools.selectOption,
     snapshotTools.drag,
 
-    // Common tools that don't take a snapshot by default
+    // Common tools
     common.wait,
     common.pressKey,
+    common.listTabs,
+    common.setActiveTab,
 
-    // Navigation tools are factories, we want the version that returns a snapshot.
+    // Navigation tools (configured to return a snapshot)
     common.navigate(true),
     common.goBack(true),
     common.goForward(true),
