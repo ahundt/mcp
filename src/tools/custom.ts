@@ -1,8 +1,8 @@
+// ./mcp/src/tools/custom.ts
 import { zodToJsonSchema } from "zod-to-json-schema";
-
 import { GetConsoleLogsTool, ScreenshotTool } from "@repo/types/mcp/tool";
-
-import { Tool } from "./tool";
+import type { Tool } from "./tool";
+import type { Context } from "@/context";
 
 export const getConsoleLogs: Tool = {
   schema: {
@@ -11,15 +11,15 @@ export const getConsoleLogs: Tool = {
     inputSchema: zodToJsonSchema(GetConsoleLogsTool.shape.arguments),
   },
   handle: async (context, _params) => {
-    const consoleLogs = await context.sendSocketMessage(
-      "browser_get_console_logs",
-      {},
-    );
-    const text: string = consoleLogs
-      .map((log) => JSON.stringify(log))
-      .join("\n");
+    const consoleLogs = await context.sendSocketMessage("browser_get_console_logs", {});
+    if (consoleLogs.length === 0) {
+        return {
+            content: [{ type: "text", text: "No console logs found." }],
+        };
+    }
+    const text: string = consoleLogs.map((log) => JSON.stringify(log)).join("\n");
     return {
-      content: [{ type: "text", text }],
+      content: [{ type: "text", text: `Console Logs:\n${text}` }],
     };
   },
 };
@@ -31,18 +31,13 @@ export const screenshot: Tool = {
     inputSchema: zodToJsonSchema(ScreenshotTool.shape.arguments),
   },
   handle: async (context, _params) => {
-    const screenshot = await context.sendSocketMessage(
-      "browser_screenshot",
-      {},
-    );
+    const screenshotData = await context.sendSocketMessage("browser_screenshot", {});
     return {
-      content: [
-        {
-          type: "image",
-          data: screenshot,
-          mimeType: "image/png",
-        },
-      ],
+      content: [{
+        type: "image",
+        data: screenshotData,
+        mimeType: "image/png",
+      }],
     };
   },
 };

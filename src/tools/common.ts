@@ -11,6 +11,7 @@ import {
 import { captureAriaSnapshot } from "@/utils/aria-snapshot";
 
 import type { Tool, ToolFactory } from "./tool";
+import type { Context } from "@/context";
 
 export const navigate: ToolFactory = (snapshot) => ({
   schema: {
@@ -22,15 +23,10 @@ export const navigate: ToolFactory = (snapshot) => ({
     const { url } = NavigateTool.shape.arguments.parse(params);
     await context.sendSocketMessage("browser_navigate", { url });
     if (snapshot) {
-      return captureAriaSnapshot(context);
+      return captureAriaSnapshot(context, `Navigated to ${url}`);
     }
     return {
-      content: [
-        {
-          type: "text",
-          text: `Navigated to ${url}`,
-        },
-      ],
+      content: [{ type: "text", text: `Navigated to ${url}` }],
     };
   },
 });
@@ -44,15 +40,10 @@ export const goBack: ToolFactory = (snapshot) => ({
   handle: async (context) => {
     await context.sendSocketMessage("browser_go_back", {});
     if (snapshot) {
-      return captureAriaSnapshot(context);
+      return captureAriaSnapshot(context, "Navigated back");
     }
     return {
-      content: [
-        {
-          type: "text",
-          text: "Navigated back",
-        },
-      ],
+      content: [{ type: "text", text: "Navigated back" }],
     };
   },
 });
@@ -66,15 +57,10 @@ export const goForward: ToolFactory = (snapshot) => ({
   handle: async (context) => {
     await context.sendSocketMessage("browser_go_forward", {});
     if (snapshot) {
-      return captureAriaSnapshot(context);
+      return captureAriaSnapshot(context, "Navigated forward");
     }
     return {
-      content: [
-        {
-          type: "text",
-          text: "Navigated forward",
-        },
-      ],
+      content: [{ type: "text", text: "Navigated forward" }],
     };
   },
 });
@@ -89,12 +75,7 @@ export const wait: Tool = {
     const { time } = WaitTool.shape.arguments.parse(params);
     await context.sendSocketMessage("browser_wait", { time });
     return {
-      content: [
-        {
-          type: "text",
-          text: `Waited for ${time} seconds`,
-        },
-      ],
+      content: [{ type: "text", text: `Waited for ${time} seconds` }],
     };
   },
 };
@@ -109,12 +90,7 @@ export const pressKey: Tool = {
     const { key } = PressKeyTool.shape.arguments.parse(params);
     await context.sendSocketMessage("browser_press_key", { key });
     return {
-      content: [
-        {
-          type: "text",
-          text: `Pressed key ${key}`,
-        },
-      ],
+      content: [{ type: "text", text: `Pressed key ${key}` }],
     };
   },
 };

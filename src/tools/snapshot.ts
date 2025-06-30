@@ -1,136 +1,102 @@
+// ./mcp/src/tools/snapshot.ts
 import zodToJsonSchema from "zod-to-json-schema";
-
 import {
-  ClickTool,
-  DragTool,
-  HoverTool,
-  SelectOptionTool,
-  SnapshotTool,
-  TypeTool,
+    ClickTool,
+    DragTool,
+    HoverTool,
+    SelectOptionTool,
+    SnapshotTool,
+    TypeTool,
 } from "@repo/types/mcp/tool";
-
 import type { Context } from "@/context";
 import { captureAriaSnapshot } from "@/utils/aria-snapshot";
-
+import { stringifyLocator } from "@/utils/locator";
 import type { Tool } from "./tool";
 
 export const snapshot: Tool = {
-  schema: {
+    schema: {
     name: SnapshotTool.shape.name.value,
     description: SnapshotTool.shape.description.value,
     inputSchema: zodToJsonSchema(SnapshotTool.shape.arguments),
-  },
-  handle: async (context: Context) => {
-    return await captureAriaSnapshot(context);
-  },
+    },
+    handle: async (context: Context) => {
+    return await captureAriaSnapshot(context, "Page snapshot captured");
+    },
 };
 
 export const click: Tool = {
-  schema: {
+    schema: {
     name: ClickTool.shape.name.value,
     description: ClickTool.shape.description.value,
     inputSchema: zodToJsonSchema(ClickTool.shape.arguments),
-  },
-  handle: async (context: Context, params) => {
+    },
+    handle: async (context: Context, params) => {
     const validatedParams = ClickTool.shape.arguments.parse(params);
-    await context.sendSocketMessage("browser_click", validatedParams);
-    const snapshot = await captureAriaSnapshot(context);
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Clicked "${validatedParams.element}"`,
-        },
-        ...snapshot.content,
-      ],
-    };
-  },
+    await context.sendSocketMessage("browser_click", { locator: validatedParams.locator });
+    return await captureAriaSnapshot(context, `Clicked element found via ${stringifyLocator(validatedParams.locator)}`);
+    },
 };
 
 export const drag: Tool = {
-  schema: {
-    name: DragTool.shape.name.value,
-    description: DragTool.shape.description.value,
-    inputSchema: zodToJsonSchema(DragTool.shape.arguments),
-  },
-  handle: async (context: Context, params) => {
-    const validatedParams = DragTool.shape.arguments.parse(params);
-    await context.sendSocketMessage("browser_drag", validatedParams);
-    const snapshot = await captureAriaSnapshot(context);
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Dragged "${validatedParams.startElement}" to "${validatedParams.endElement}"`,
-        },
-        ...snapshot.content,
-      ],
-    };
-  },
+    schema: {
+        name: DragTool.shape.name.value,
+        description: DragTool.shape.description.value,
+        inputSchema: zodToJsonSchema(DragTool.shape.arguments),
+    },
+    handle: async (context: Context, params) => {
+        const validatedParams = DragTool.shape.arguments.parse(params);
+        await context.sendSocketMessage("browser_drag", {
+            startElement: validatedParams.startElement,
+            endElement: validatedParams.endElement,
+        });
+        const startLocatorText = stringifyLocator(validatedParams.startElement);
+        const endLocatorText = stringifyLocator(validatedParams.endElement);
+        return await captureAriaSnapshot(context, `Dragged element from ${startLocatorText} to ${endLocatorText}`);
+    },
 };
 
 export const hover: Tool = {
-  schema: {
+    schema: {
     name: HoverTool.shape.name.value,
     description: HoverTool.shape.description.value,
     inputSchema: zodToJsonSchema(HoverTool.shape.arguments),
-  },
-  handle: async (context: Context, params) => {
+    },
+    handle: async (context: Context, params) => {
     const validatedParams = HoverTool.shape.arguments.parse(params);
-    await context.sendSocketMessage("browser_hover", validatedParams);
-    const snapshot = await captureAriaSnapshot(context);
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Hovered over "${validatedParams.element}"`,
-        },
-        ...snapshot.content,
-      ],
-    };
-  },
+    await context.sendSocketMessage("browser_hover", { locator: validatedParams.locator });
+    return await captureAriaSnapshot(context, `Hovered over element found via ${stringifyLocator(validatedParams.locator)}`);
+    },
 };
 
 export const type: Tool = {
-  schema: {
+    schema: {
     name: TypeTool.shape.name.value,
     description: TypeTool.shape.description.value,
     inputSchema: zodToJsonSchema(TypeTool.shape.arguments),
-  },
-  handle: async (context: Context, params) => {
+    },
+    handle: async (context: Context, params) => {
     const validatedParams = TypeTool.shape.arguments.parse(params);
-    await context.sendSocketMessage("browser_type", validatedParams);
-    const snapshot = await captureAriaSnapshot(context);
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Typed "${validatedParams.text}" into "${validatedParams.element}"`,
-        },
-        ...snapshot.content,
-      ],
-    };
-  },
+    await context.sendSocketMessage("browser_type", {
+        locator: validatedParams.locator,
+        text: validatedParams.text,
+        submit: validatedParams.submit,
+    });
+    return await captureAriaSnapshot(context, `Typed "${validatedParams.text}" into element found via ${stringifyLocator(validatedParams.locator)}`);
+    },
 };
 
 export const selectOption: Tool = {
-  schema: {
+    schema: {
     name: SelectOptionTool.shape.name.value,
     description: SelectOptionTool.shape.description.value,
     inputSchema: zodToJsonSchema(SelectOptionTool.shape.arguments),
-  },
-  handle: async (context: Context, params) => {
+    },
+    handle: async (context: Context, params) => {
     const validatedParams = SelectOptionTool.shape.arguments.parse(params);
-    await context.sendSocketMessage("browser_select_option", validatedParams);
-    const snapshot = await captureAriaSnapshot(context);
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Selected option in "${validatedParams.element}"`,
-        },
-        ...snapshot.content,
-      ],
-    };
-  },
+    await context.sendSocketMessage("browser_select_option", {
+        locator: validatedParams.locator,
+        values: validatedParams.values,
+    });
+    return await captureAriaSnapshot(context, `Selected option in element found via ${stringifyLocator(validatedParams.locator)}`);
+    },
 };
