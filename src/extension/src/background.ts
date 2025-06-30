@@ -1,44 +1,102 @@
-// mcp/extension/src/background.ts
-import { WebSocket } from "ws"; // Assuming 'ws' is bundled for the extension context
-import type { SocketMessageMap, FocusTabError } from "../../types/messages/ws";
-import type { MessagePayload } from "@r2r/messaging/types"; // This path might need adjustment based on actual bundling
+// mcp/src/extension/src/background.ts
+import type { SocketMessageMap, FocusTabError } from "@/types/messages/ws.js";
 
 /**
- * NOTE: This is an architectural representation. A real extension's background script
- * would need to handle WebSocket creation, bundling, and more complex state management.
+ * This background script is the central communication hub.
+ * 1. It maintains a single WebSocket connection to the local MCP server.
+ * 2. It tracks which browser tab is the "active" target for automation via user action.
+ * 3. It routes messages between the server and the correct content script.
+ * 4. It handles browser-level commands that content scripts cannot.
  */
 
-// This map holds the association between a server connection and a browser tab.
-// In a real extension, this state should be managed more robustly.
-const connectionTabMap = new Map<WebSocket, number>();
+let mcpSocket: WebSocket | null = null;
+let activeTabId: number | null = null;
+// This URL should be configurable in a real application.
+const MCP_SERVER_URL = "ws://localhost:9002"; // Default port from inspector script
 
-// This function would be called when the WebSocket server from the MCP process
-// establishes a new connection. It needs to be associated with a tab, likely
-// initiated from the extension's popup UI.
-function onNewConnection(ws: WebSocket, tabId: number) {
-    connectionTabMap.set(ws, tabId);
-
-    ws.on('close', () => {
-        connectionTabMap.delete(ws);
-        console.log(`Connection closed for tab ${tabId}.`);
-    });
-
-    ws.on('message', (message) => {
-        // Here you would parse the message and route it.
-        // For simplicity, we assume a router calls the correct handler.
+/**
+ * A wrapper around chrome async APIs to make them promise-based and handle errors.
+ */
+function promiseChrome<T>(callback: (resolve: (value: T) => void, reject: (reason?: any) => void) => void): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        try {
+            callback(resolve, reject);
+        } catch (error) {
+            reject(error);
+        }
     });
 }
 
-// Clean up connections if the tab is closed by the user.
-chrome.tabs.onRemoved.addListener((tabId) => {
-    for (const [ws, id] of connectionTabMap.entries()) {
-        if (id === tabId) {
-            ws.close(); // This triggers the 'close' event handler above.
-            break;
-        }
-    }
-});
 
+/**
+ * Establishes and manages the WebSocket connection to the MCP server.
+ * Includes automatic reconnection logic.
+ */
+function connect() {
+    console.log(`[MCP Background] Attempting to connect to MCP server at ${MCP_SERVER_URL}...`);
+    // Use the browser's native WebSocket API.
+    mcpSocket = new WebSocket(MCP_SERVER_URL);
+
+    mcpSocket.onopen = () => {
+        console.log("[MCP Background] Connection to MCP server established.");
+        // Notify the user that the connection is active, e.g., by changing the icon.
+        chrome.action.setIcon({ path: "/icons/active.png" }); // Assumes icons are defined in manifest
+    };
+
+    mcpSocket.onmessage = (event) => {
+        try {
+            const message = JSON.parse(event.data);
+            handleMcpRequest(message);
+        } catch (e) {
+            console.error("[MCP Background] Failed to parse message from MCP server:", e);
+        }
+    };
+
+    mcpSocket.onerror = (error) => {
+        console.error("[MCP Background] WebSocket error:", error);
+    };
+
+    mcpSocket.onclose = () => {
+        console.log("[MCP Background] Connection closed. Reconnecting in 5 seconds...");
+        chrome.action.setIcon({ path: "/icons/inactive.png" }); // Assumes icons are defined in manifest
+        mcpSocket = null;
+        activeTabId = null; // Invalidate active tab on disconnect
+        setTimeout(connect, 5000);
+    };
+}
+
+/**
+ * Routes requests from the MCP server to the appropriate handler.
+ * @param request The request object from the server.
+ */
+async function handleMcpRequest(request: { id: number; method: keyof SocketMessageMap; params: any }) {
+    const { id, method, params } = request;
+    let result: any;
+
+    try {
+        // Browser-level actions handled here in the background script.
+        if (method === 'browser_navigate') {
+            if (!activeTabId) throw new Error("No active tab selected.");
+            await chrome.tabs.update(activeTabId, { url: params.url });
+            result = { success: true }; // Navigation commands don't typically return data.
+        } else if (method === 'browser_focus_tab') {
+            result = await handleFocusTab();
+        } else {
+             // All other actions are assumed to be DOM-related and are forwarded to the content script.
+            if (!activeTabId) throw new Error("No active tab selected for this action.");
+            result = await chrome.tabs.sendMessage(activeTabId, { type: method, payload: params });
+        }
+    } catch (e: any) {
+        result = { success: false, error: e.message || "An unknown error occurred in the background script." };
+    }
+
+
+    // Send the response back to the MCP server.
+    if (mcpSocket && mcpSocket.readyState === WebSocket.OPEN) {
+        // The server expects a JSON-RPC-like response with the original request ID.
+        mcpSocket.send(JSON.stringify({ id, result }));
+    }
+}
 
 /**
  * Handles the 'browser_focus_tab' command from the server.
@@ -47,67 +105,46 @@ chrome.tabs.onRemoved.addListener((tabId) => {
  * @param ws The WebSocket connection instance from the server.
  * @returns A promise resolving to the success or failure response object.
  */
-async function handleFocusTab(ws: WebSocket): Promise<{ success: boolean; error?: FocusTabError }> {
-    const tabId = connectionTabMap.get(ws);
-    if (!tabId) {
+async function handleFocusTab(): Promise<{ success: boolean; error?: FocusTabError }> {
+    if (!activeTabId) {
         return { success: false, error: { code: 'NO_ACTIVE_CONNECTION', message: 'No tab is associated with this server connection.' } };
     }
 
     try {
-        // Promise-wrap chrome.tabs.get to handle async/await and chrome.runtime.lastError
-        const tab = await new Promise<chrome.tabs.Tab>((resolve, reject) => {
-            chrome.tabs.get(tabId, (t) => {
-                const err = chrome.runtime.lastError;
-                if (err) return reject(new Error(err.message));
-                // This can happen if the tab was closed just before this call.
-                if (!t) return reject(new Error(`No tab with id: ${tabId}`));
-                resolve(t);
-            });
-        });
+        const tab = await promiseChrome<chrome.tabs.Tab>(resolve => chrome.tabs.get(activeTabId!, resolve));
+        if (!tab) throw new Error(`Tab with ID ${activeTabId} not found.`);
 
-        // Block attempts to interact with protected browser pages.
-        if (tab.url?.startsWith("chrome://") || tab.url?.startsWith("https://chrome.google.com/")) {
-            return { success: false, error: { code: 'FORBIDDEN_URL', message: `Cannot interact with protected browser URL: ${tab.url}`, url: tab.url } };
+        if (tab.url?.startsWith("chrome://")) {
+            return { success: false, error: { code: 'FORBIDDEN_URL', message: `Cannot interact with protected URL: ${tab.url}`, url: tab.url } };
         }
 
-        // Promise-wrap the update calls to ensure they complete.
-        // We update the window first, then the tab.
-        await new Promise<void>((resolve, reject) => {
-             chrome.windows.update(tab.windowId!, { focused: true }, () => {
-                const err = chrome.runtime.lastError;
-                if (err) return reject(new Error(err.message));
-                resolve();
-            });
-        });
-
-        await new Promise<void>((resolve, reject) => {
-            chrome.tabs.update(tabId, { active: true }, () => {
-               const err = chrome.runtime.lastError;
-               if (err) return reject(new Error(err.message));
-               resolve();
-           });
-       });
+        await promiseChrome<chrome.windows.Window>(resolve => chrome.windows.update(tab.windowId!, { focused: true }, resolve));
+        await promiseChrome<chrome.tabs.Tab>(resolve => chrome.tabs.update(tab.id!, { active: true }, resolve));
 
         return { success: true };
-
     } catch (e: any) {
-        // Provide detailed, structured errors based on the exception message.
         if (e.message?.includes("No tab with id")) {
-            return { success: false, error: { code: 'TAB_NOT_FOUND', message: e.message, tabId: tabId } };
+            return { success: false, error: { code: 'TAB_NOT_FOUND', message: e.message, tabId: activeTabId } };
         }
         if (e.message?.includes("No window with id")) {
-            // This is unlikely if getTab succeeded, but we handle it defensively.
             return { success: false, error: { code: 'WINDOW_NOT_FOUND', message: e.message, windowId: -1 }};
         }
-        // A catch-all for other Chrome API errors.
-        return { success: false, error: { code: 'CHROME_API_ERROR', message: e.message || 'An unknown error occurred in the browser extension.' } };
+        return { success: false, error: { code: 'CHROME_API_ERROR', message: e.message } };
     }
 }
 
-// The background script would also contain the logic to forward DOM-related
-// messages (like 'browser_click') to the correct content script.
-async function forwardToContentScript<T extends keyof SocketMessageMap>(type: T, payload: MessagePayload<SocketMessageMap, T>) {
-    // 1. Get tabId from connectionTabMap
-    // 2. Use chrome.tabs.sendMessage(tabId, { type, payload })
-    // 3. Return the response from the content script
-}
+
+// Start the connection logic when the extension is installed or updated.
+chrome.runtime.onStartup.addListener(connect);
+connect(); // Also connect when the background script first loads.
+
+// Listen for a user action (clicking the extension icon) to set the active tab.
+chrome.action.onClicked.addListener((tab) => {
+    if (tab.id) {
+        activeTabId = tab.id;
+        console.log(`[MCP Background] Active tab for automation set to: ${tab.id}`);
+        // Give visual feedback that a tab is connected.
+        chrome.action.setBadgeText({ text: "ON", tabId: tab.id });
+        chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
+    }
+});
