@@ -1,28 +1,19 @@
 // mcp/src/tools/common.ts
 import { zodToJsonSchema } from "zod-to-json-schema";
 import {
-  GoBackTool,
-  GoForwardTool,
-  NavigateTool,
-  PressKeyTool,
-  WaitTool,
   ListTabsTool,
   SetActiveTabTool,
+  NavigateTool,
+  GoBackTool,
+  GoForwardTool,
+  PressKeyTool,
+  WaitTool,
 } from "@/types/mcp/tool.schemas.js";
 import type { TabInfo, SetActiveTabError } from "@/types/messages/ws.types.js";
 import type { Context } from "@/context.js";
 import { captureAriaSnapshot } from "@/utils/aria-snapshot.js";
 import type { Tool, ToolFactory, ToolResult } from "./tool.interface.js";
-
-// This is a shared helper function for navigation tools.
-// Unlike element interactions, navigation failures in the extension are often
-// un-recoverable (e.g., no active tab). So we throw an error which gets caught
-// by the main server loop and reported to the user.
-function handleNavigationResponse(response: { success: boolean, error?: string } | undefined, action: string) {
-  if (!response?.success) {
-    throw new Error(`Action '${action}' failed in the browser extension. Reason: ${response?.error || 'Unknown error'}`);
-  }
-}
+import { handleBrowserResponse } from "./snapshot.js";
 
 export const listTabs: Tool = {
   schema: {
@@ -32,9 +23,8 @@ export const listTabs: Tool = {
   },
   handle: async (context) => {
     const response = await context.sendSocketMessage("browser_list_tabs", {});
-    if (!response?.success) {
-      throw new Error(`Action 'browser_list_tabs' failed. Reason: ${response.error}`);
-    }
+    const errorResult = handleBrowserResponse('browser_list_tabs', '', response);
+    if (errorResult) return errorResult;
     const tabs = response.tabs as TabInfo[];
     const formattedTabs = tabs.map(t =>
       `  - ID: ${t.tabId}, Active for Automation: ${t.isActiveForAutomation}, Title: "${t.title}", URL: ${t.url}`
@@ -43,7 +33,7 @@ export const listTabs: Tool = {
   },
 };
 
-export const setActiveTab: Tool = {
+export const setActiveTab: ToolFactory = (snapshot) => ({
   schema: {
     name: SetActiveTabTool.shape.name.value,
     description: SetActiveTabTool.shape.description.value,
@@ -52,14 +42,14 @@ export const setActiveTab: Tool = {
   handle: async (context, params) => {
     const { tabId, focus } = SetActiveTabTool.shape.arguments.parse(params);
     const response = await context.sendSocketMessage("browser_set_active_tab", { tabId, focus });
-    if (!response?.success) {
-        const error = response.error as SetActiveTabError | undefined;
-        const reason = error ? `Code: ${error.code}, Message: ${error.message}` : "Unknown error.";
-        throw new Error(`Action 'browser_set_active_tab' failed for tabId ${tabId}. Reason: ${reason}`);
+    const errorResult = handleBrowserResponse('browser_set_active_tab', `tabId: ${tabId}`, response);
+    if (errorResult) return errorResult;
+    if (snapshot) {
+      return captureAriaSnapshot(context, `Active automation tab set to ${tabId}.`);
     }
     return { content: [{ type: "text", text: `Active automation tab set to ${tabId}.` }] };
   },
-};
+});
 
 export const navigate: ToolFactory = (snapshot) => ({
   schema: {
@@ -70,7 +60,8 @@ export const navigate: ToolFactory = (snapshot) => ({
   handle: async (context, params) => {
     const { url } = NavigateTool.shape.arguments.parse(params);
     const response = await context.sendSocketMessage("browser_navigate", { url });
-    handleNavigationResponse(response, "browser_navigate"); // Throws on failure
+    const errorResult = handleBrowserResponse('browser_navigate', url, response);
+    if (errorResult) return errorResult;
     if (snapshot) {
       return captureAriaSnapshot(context, `Navigated to ${url}`);
     }
@@ -86,7 +77,8 @@ export const goBack: ToolFactory = (snapshot) => ({
   },
   handle: async (context) => {
     const response = await context.sendSocketMessage("browser_go_back", {});
-    handleNavigationResponse(response, "browser_go_back");
+    const errorResult = handleBrowserResponse('browser_go_back', '', response);
+    if (errorResult) return errorResult;
     if (snapshot) {
       return captureAriaSnapshot(context, "Navigated back");
     }
@@ -102,7 +94,8 @@ export const goForward: ToolFactory = (snapshot) => ({
   },
   handle: async (context) => {
     const response = await context.sendSocketMessage("browser_go_forward", {});
-    handleNavigationResponse(response, "browser_go_forward");
+    const errorResult = handleBrowserResponse('browser_go_forward', '', response);
+    if (errorResult) return errorResult;
     if (snapshot) {
       return captureAriaSnapshot(context, "Navigated forward");
     }
@@ -118,7 +111,9 @@ export const wait: Tool = {
   },
   handle: async (context, params) => {
     const { time } = WaitTool.shape.arguments.parse(params);
-    await context.sendSocketMessage("browser_wait", { time });
+    const response = await context.sendSocketMessage("browser_wait", { time });
+    const errorResult = handleBrowserResponse('browser_wait', String(time), response);
+    if (errorResult) return errorResult;
     return {
       content: [{ type: "text", text: `Waited for ${time} seconds` }],
     };
@@ -133,7 +128,9 @@ export const pressKey: Tool = {
   },
   handle: async (context, params) => {
     const { key } = PressKeyTool.shape.arguments.parse(params);
-    await context.sendSocketMessage("browser_press_key", { key });
+    const response = await context.sendSocketMessage("browser_press_key", { key });
+    const errorResult = handleBrowserResponse('browser_press_key', key, response);
+    if (errorResult) return errorResult;
     return {
       content: [{ type: "text", text: `Pressed key ${key}` }],
     };

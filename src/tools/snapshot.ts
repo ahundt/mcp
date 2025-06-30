@@ -22,7 +22,7 @@ import type { Tool, ToolResult } from "./tool.js";
  * @param response The response object from the browser extension.
  * @returns A ToolResult object if the action failed, otherwise null.
  */
-function handleBrowserResponse(actionName: string, locatorText: string, response: { success: boolean, error?: string } | undefined): ToolResult | null {
+export function handleBrowserResponse(actionName: string, locatorText: string, response: { success: boolean, error?: string } | undefined): ToolResult | null {
     if (!response?.success) {
         const reason = response?.error ?? "An unknown error occurred in the browser extension.";
         const errorMessage = `Action '${actionName}' failed for locator(s): ${locatorText}. Reason: ${reason}`;
