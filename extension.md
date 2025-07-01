@@ -212,3 +212,7 @@
 
   First, I will modify package.json to add the uuid dependency and update the @modelcontextprotocol/sdk to its latest version. This ensures that src/context.ts (which uses uuid) and the core
   MCP SDK are correctly resolved.
+
+
+  TODO: remove integration with    "matches": ["https://*.browsermcp.io/*"] and use in manifest for privacy reasons, make it all work localy
+
