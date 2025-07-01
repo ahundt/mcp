@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "Browser MCP",
+  "version": "0.2.0",
+  "description": "Automate your browser with AI.",
+  "permissions": [
+    "debugger",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/16.png",
+      "32": "icons/32.png",
+      "48": "icons/48.png"
+    }
+  },
+  "icons": {
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "background": {
+    "service_worker": "src/background.ts",
+    "type": "module"
+  },
+  "externally_connectable": {
+    "matches": ["http://localhost/*"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content.ts"]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 // ./mcp/src/tools/custom.ts
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { GetConsoleLogsTool, ScreenshotTool } from "@/types/mcp/tool.js";
+import { GetConsoleLogsTool, ScreenshotTool } from "../types/mcp/tool.schemas.js";
 import type { Tool } from "./tool";
 import type { Context } from "@/context";
 

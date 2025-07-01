@@ -9,7 +9,7 @@ import {
 import { Context } from "@/context";
 import type { Resource } from "@/resources/resource";
 import type { Tool } from "@/tools/tool";
-import { createWebSocketServer } from "@/ws";
+import { createWebSocketServer } from "./websocket-server";
 
 type Options = {
   name: string;

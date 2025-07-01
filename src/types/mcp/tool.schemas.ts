@@ -1,6 +1,6 @@
 // mcp/src/types/mcp/tool.ts
 import { z } from "zod";
-import { LocatorSchema } from "./locator.js";
+import { LocatorSchema } from "./locator.schemas.js";
 
 export const ClickTool = z.object({
   name: z.literal("browser_click"),

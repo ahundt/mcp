@@ -7,10 +7,10 @@ import {
     SelectOptionTool,
     SnapshotTool,
     TypeTool,
-} from "@/types/mcp/tool.js"; // FIXED: Uses correct path alias
+} from "../types/mcp/tool.schemas.js";
 import type { Context } from "@/context.js";
 import { captureAriaSnapshot } from "@/utils/aria-snapshot.js";
-import { stringifyLocator } from "@/utils/locator.js";
+import { stringifyLocator } from "../utils/locator.stringifier.js";
 import { makeCommonTool } from "./common.js";
 import type { Tool } from "./tool.js";
 

@@ -3,14 +3,14 @@
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { program } from "commander";
-import { appConfig } from "@repo/config/app.config";
+import { appConfig } from "@/config";
 import type { Resource } from "@/resources/resource";
 import { createServerWithTools } from "@/server";
 import * as common from "@/tools/common";
 import * as custom from "@/tools/custom";
 import * as snapshotTools from "@/tools/snapshot";
 import type { Tool } from "@/tools/tool";
-import packageJSON from "@/package.json";
+import packageJSON from "../package.json";
 
 function setupExitWatchdog(server: Server) {
     process.stdin.on("close", async () => {

@@ -36,6 +36,8 @@ import { v4 as uuidv4 } from 'uuid'; // A library for generating unique IDs, ass
 let mcpSocket: WebSocket | null = null;
 let activeTabId: number | null = null;
 const MCP_SERVER_URL = "ws://localhost:9002"; // Should be configurable.
+let connectionStatus: 'disconnected' | 'connecting' | 'connected' | 'reconnecting' = 'disconnected';
+let wasConnected: boolean = false;
 
 /**
  * A robust promise wrapper for asynchronous Chrome APIs that use callbacks.
@@ -112,27 +114,45 @@ async function onSocketMessage(event: MessageEvent) {
  */
 function connect() {
     console.log(`[MCP Background] Connecting to ${MCP_SERVER_URL}...`);
+    connectionStatus = 'connecting';
+    sendConnectionStatusToPopup(); // Send status update
     mcpSocket = new WebSocket(MCP_SERVER_URL);
 
     mcpSocket.onopen = () => {
         console.log("[MCP Background] Connection established.");
-        chrome.action.setIcon({ path: "/icons/active.png" });
+        connectionStatus = 'connected';
+        wasConnected = true;
+        chrome.action.setIcon({ path: "icons/active.png" });
+        sendConnectionStatusToPopup(); // Send status update
     };
 
     mcpSocket.onmessage = onSocketMessage; // Assign the robust handler
 
-    mcpSocket.onerror = (error) => console.error("[MCP Background] WebSocket error:", error);
+    mcpSocket.onerror = (error) => {
+        console.error("[MCP Background] WebSocket error:", error);
+        connectionStatus = wasConnected ? 'reconnecting' : 'disconnected';
+        sendConnectionStatusToPopup(); // Send status update
+    };
 
     mcpSocket.onclose = () => {
         console.log("[MCP Background] Connection closed. Reconnecting in 5s...");
-        chrome.action.setIcon({ path: "/icons/inactive.png" });
+        connectionStatus = wasConnected ? 'reconnecting' : 'disconnected';
+        wasConnected = false; // Reset wasConnected on close
+        chrome.action.setIcon({ path: "icons/inactive.png" });
         if (activeTabId) {
             chrome.action.setBadgeText({ text: "", tabId: activeTabId });
         }
         mcpSocket = null;
         activeTabId = null;
+        sendConnectionStatusToPopup(); // Send status update
         setTimeout(connect, 5000);
     };
+}
+
+function sendConnectionStatusToPopup() {
+    chrome.runtime.sendMessage({ type: 'connectionStatusUpdate', status: connectionStatus }).catch(() => {
+        // Ignore errors if popup is not open
+    });
 }
 
 
@@ -215,16 +235,25 @@ async function handleNavigation(
 }
 
 // --- EXTENSION LIFECYCLE LISTENERS ---
+// Set initial icon state
+chrome.action.setIcon({ path: "icons/inactive.png" });
+
 chrome.runtime.onInstalled.addListener(() => connect());
 chrome.runtime.onStartup.addListener(() => connect());
 connect(); // Attempt initial connection immediately when the script loads.
 
-// The user clicking the icon serves as a manual "set active tab" override.
-chrome.action.onClicked.addListener(async (tab) => {
-    if (tab.id && tab.url?.startsWith("http")) {
-        console.log(`[MCP Background] Manually setting active tab to ${tab.id}`);
-        await handleSetActiveTab(tab.id, true);
-    } else {
-        console.log("[MCP Background] Icon clicked on a non-automatable tab.");
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.type === 'connect') {
+        // The popup is asking to connect. The background script already auto-connects.
+        // So, we just need to activate the tab if a tabId is provided.
+        if (request.tabId) {
+            handleSetActiveTab(request.tabId, true);
+            sendResponse({ status: 'Tab activated.' });
+        } else {
+            sendResponse({ status: 'Already auto-connecting.' });
+        }
+    } else if (request.type === 'getConnectionStatus') {
+        sendResponse({ status: connectionStatus });
     }
+    return true; // Required for asynchronous sendResponse
 });
