@@ -32,12 +32,35 @@ export async function createServerWithTools(options: Options): Promise<Server> {
   );
 
   const wss = await createWebSocketServer();
-  wss.on("connection", (websocket) => {
-    // Close any existing connections
+  wss.on("connection", (websocket, req) => {
+    // --- Client Identification ---
+    const ip = req?.socket?.remoteAddress || 'unknown';
+    const origin = req?.headers?.origin || 'unknown';
+    const userAgent = req?.headers?.['user-agent'] || 'unknown';
+    const clientInfo = `[IP: ${ip}] [Origin: ${origin}] [User-Agent: ${userAgent}]`;
+    console.log(`\x1b[36m[MCP Server] WebSocket client connected ${clientInfo}\x1b[0m`);
+
+    // --- Single-Client Policy ---
     if (context.hasWs()) {
-      context.ws.close();
+      context.ws.close(4000, 'Another client connected');
+      console.warn(`\x1b[33m[MCP Server] Previous client forcibly disconnected to allow new connection.\x1b[0m`);
     }
     context.ws = websocket;
+
+    websocket.on("close", (code, reason) => {
+      const reasonStr = reason ? reason.toString() : '';
+      let msg = `[MCP Server] WebSocket client disconnected ${clientInfo} [Code: ${code}]`;
+      if (reasonStr) msg += ` [Reason: ${reasonStr}]`;
+      if (code !== 1000) {
+        // Non-normal closure
+        console.error(`\x1b[31m${msg}\x1b[0m`);
+      } else {
+        console.log(`\x1b[36m${msg}\x1b[0m`);
+      }
+    });
+    websocket.on("error", (err) => {
+      console.error(`\x1b[31m[MCP Server] WebSocket error ${clientInfo}: ${err.message}\x1b[0m`);
+    });
   });
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -82,10 +105,14 @@ export async function createServerWithTools(options: Options): Promise<Server> {
     return { contents };
   });
 
+  // Save the original close method to avoid recursion
+  const originalClose = server.close.bind(server);
   server.close = async () => {
-    await server.close();
+    console.log("[MCP Server] Closing server, WebSocket server, and context...");
+    await originalClose();
     await wss.close();
     await context.close();
+    console.log("[MCP Server] All resources closed.");
   };
 
   return server;

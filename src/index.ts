@@ -35,7 +35,7 @@ const allTools: Tool[] = [
     common.wait,
     common.pressKey,
     common.listTabs,
-    common.setActiveTab,
+    common.setActiveTab(true),
 
     // Navigation tools (configured to return a snapshot)
     common.navigate(true),
