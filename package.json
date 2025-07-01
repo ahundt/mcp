@@ -20,7 +20,9 @@
     "build": "npm run build:server && npm run build:extension",
     "prepare": "npm run build",
     "watch": "tsup src/index.ts --format esm --watch",
-    "inspector": "CLIENT_PORT=9001 SERVER_PORT=9002 pnpx @modelcontextprotocol/inspector node dist/index.js"
+    "inspector": "CLIENT_PORT=9001 SERVER_PORT=9002 pnpx @modelcontextprotocol/inspector node dist/index.js",
+    "test:harness": "tsup test_harness.ts --format esm && node dist/test_harness.js",
+    "start:mcp": "npm run build:server && node dist/index.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.13.2",
