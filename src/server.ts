@@ -8,7 +8,7 @@ import {
 
 import { Context } from "@/context";
 import type { Resource } from "@/resources/resource";
-import type { Tool } from "@/tools/tool";
+import type { Tool } from "@/types/mcp/tool.schemas";
 import { createWebSocketServer } from "./websocket-server";
 
 type Options = {

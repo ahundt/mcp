@@ -45,7 +45,18 @@ import type { SocketMessageMap } from "@/types/messages/ws.types.js";
  */
 
 /**
- * Captures a full ARIA snapshot of the current page.
+ * Captures a full ARIA snapshot of the current page with locator suggestions.
+ * 
+ * CRITICAL FIRST STEP: Always call this before attempting to interact with page elements.
+ * This provides:
+ * - List of all interactive elements with descriptions
+ * - Multiple locator strategies for each element with confidence ratings
+ * - Temporary ref values for debugging (these change on each snapshot)
+ * - Element visibility and interactability status
+ * 
+ * Use the 'locators' array in the response to choose the best strategy for each element.
+ * Prefer locators with 'very-high' or 'high' confidence ratings.
+ * 
  * Arguments: none
  */
 export const snapshot: Tool = {
@@ -55,7 +66,7 @@ export const snapshot: Tool = {
         inputSchema: zodToJsonSchema(SnapshotTool.shape.arguments),
     },
     handle: async (context: Context) => {
-        return await captureAriaSnapshot(context, "Page snapshot captured");
+        return await captureAriaSnapshot(context, "Page snapshot captured with locator suggestions");
     },
 };
 
@@ -65,11 +76,7 @@ export const snapshot: Tool = {
  */
 export const click: ToolFactory = makeTool(ClickTool, {
   snapshot: { enabled: true, defaultValue: true }, // Always capture snapshot after clicks
-  payloadTransform: ({ locator }: any) => ({
-    action: "browser_click",
-    locator,
-  }),
-  successMessage: ({ locator }: any) => `Clicked element found via ${stringifyLocator(locator)}`,
+  successMessage: ({ locator }: any) => `Clicked element found via ${stringifyLocator(locator)}. Tip: Call browser_snapshot first to see available elements and their suggested locators.`,
 });
 
 /**
@@ -78,11 +85,6 @@ export const click: ToolFactory = makeTool(ClickTool, {
  */
 export const drag: ToolFactory = makeTool(DragTool, {
   snapshot: { enabled: true, defaultValue: true }, // Always capture snapshot after drags
-  payloadTransform: ({ startElement, endElement }: any) => ({
-    action: "browser_drag",
-    startElement,
-    endElement,
-  }),
   successMessage: ({ startElement, endElement }: any) => `Dragged element from ${stringifyLocator(startElement)} to ${stringifyLocator(endElement)}`,
 });
 
@@ -92,10 +94,6 @@ export const drag: ToolFactory = makeTool(DragTool, {
  */
 export const hover: ToolFactory = makeTool(HoverTool, {
   snapshot: { enabled: true, defaultValue: false }, // Available but disabled by default - hovers are often temporary
-  payloadTransform: ({ locator }: any) => ({
-    action: "browser_hover",
-    locator,
-  }),
   successMessage: ({ locator }: any) => `Hovered over element found via ${stringifyLocator(locator)}`,
 });
 
@@ -105,12 +103,6 @@ export const hover: ToolFactory = makeTool(HoverTool, {
  */
 export const type: ToolFactory = makeTool(TypeTool, {
   snapshot: { enabled: true, defaultValue: true }, // Always capture snapshot after typing
-  payloadTransform: ({ locator, text, submit }: any) => ({
-    action: "browser_type",
-    locator,
-    text,
-    ...(submit !== undefined && { submit }),
-  }),
   successMessage: ({ locator, text }: any) => `Typed "${text}" into element found via ${stringifyLocator(locator)}`,
 });
 
@@ -120,10 +112,5 @@ export const type: ToolFactory = makeTool(TypeTool, {
  */
 export const selectOption: ToolFactory = makeTool(SelectOptionTool, {
   snapshot: { enabled: true, defaultValue: true }, // Always capture snapshot after selections
-  payloadTransform: ({ locator, values }: any) => ({
-    action: "browser_select_option",
-    locator,
-    values,
-  }),
   successMessage: ({ locator }: any) => `Selected option in element found via ${stringifyLocator(locator)}`,
 });

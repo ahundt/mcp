@@ -94,14 +94,276 @@ function checkElementObscurity(element: Element): string | null {
 // --- END INTERACTABILITY HELPERS ---
 
 
+// --- LOCATOR GENERATION HELPERS ---
+
+/**
+ * Gets the implicit ARIA role for an element based on its tag and attributes.
+ */
+function getImplicitAriaRole(element: HTMLElement): string | null {
+    const tagName = element.tagName.toLowerCase();
+    const type = (element as HTMLInputElement).type?.toLowerCase();
+    
+    switch (tagName) {
+        case 'button':
+            return 'button';
+        case 'a':
+            return element.hasAttribute('href') ? 'link' : null;
+        case 'input':
+            switch (type) {
+                case 'button':
+                case 'submit':
+                case 'reset':
+                    return 'button';
+                case 'checkbox':
+                    return 'checkbox';
+                case 'radio':
+                    return 'radio';
+                case 'text':
+                case 'email':
+                case 'password':
+                case 'url':
+                case 'tel':
+                    return 'textbox';
+                default:
+                    return 'textbox';
+            }
+        case 'textarea':
+            return 'textbox';
+        case 'select':
+            return element.hasAttribute('multiple') ? 'listbox' : 'combobox';
+        case 'h1':
+        case 'h2':
+        case 'h3':
+        case 'h4':
+        case 'h5':
+        case 'h6':
+            return 'heading';
+        default:
+            return null;
+    }
+}
+
+/**
+ * Finds the label text associated with a form element.
+ */
+function findLabelText(element: HTMLElement): string | null {
+    // Check for explicit label association
+    if (element.id) {
+        const label = document.querySelector(`label[for="${element.id}"]`);
+        if (label) {
+            return label.textContent?.trim() || null;
+        }
+    }
+    
+    // Check for nested label
+    const parentLabel = element.closest('label');
+    if (parentLabel) {
+        // Get label text excluding the input element's text
+        const clone = parentLabel.cloneNode(true) as HTMLElement;
+        const inputClone = clone.querySelector('input, textarea, select, button');
+        if (inputClone) {
+            inputClone.remove();
+        }
+        return clone.textContent?.trim() || null;
+    }
+    
+    // Check for aria-labelledby
+    const labelledBy = element.getAttribute('aria-labelledby');
+    if (labelledBy) {
+        const labelElement = document.getElementById(labelledBy);
+        if (labelElement) {
+            return labelElement.textContent?.trim() || null;
+        }
+    }
+    
+    return null;
+}
+
+/**
+ * Generates a minimal CSS selector for an element.
+ */
+function generateMinimalCssSelector(element: HTMLElement): string | null {
+    // Prefer ID if available and unique
+    if (element.id && document.querySelectorAll(`#${element.id}`).length === 1) {
+        return `#${element.id}`;
+    }
+    
+    // Try name attribute for form elements
+    const name = (element as HTMLInputElement).name;
+    if (name && document.querySelectorAll(`[name="${name}"]`).length === 1) {
+        return `[name="${name}"]`;
+    }
+    
+    // Try data attributes
+    for (const attr of element.attributes) {
+        if (attr.name.startsWith('data-') && attr.value) {
+            const selector = `[${attr.name}="${attr.value}"]`;
+            if (document.querySelectorAll(selector).length === 1) {
+                return selector;
+            }
+        }
+    }
+    
+    // Fall back to tag + classes if unique enough
+    const tagName = element.tagName.toLowerCase();
+    const classes = Array.from(element.classList)
+        .filter(cls => cls.length > 0 && !cls.includes(' '))
+        .slice(0, 3)
+        .join('.');
+    
+    if (classes) {
+        const selector = `${tagName}.${classes}`;
+        if (document.querySelectorAll(selector).length <= 3) {
+            return selector;
+        }
+    }
+    
+    return tagName;
+}
+
+/**
+ * Creates a human-readable description of an element.
+ */
+function getElementDescription(element: HTMLElement): string {
+    const tagName = element.tagName.toLowerCase();
+    const type = (element as HTMLInputElement).type;
+    const role = element.getAttribute('role') || getImplicitAriaRole(element);
+    const text = element.textContent?.trim().substring(0, 50);
+    const label = findLabelText(element);
+    const ariaLabel = element.ariaLabel || element.getAttribute('aria-label');
+    
+    let description = tagName;
+    if (type && type !== 'text') {
+        description += ` (${type})`;
+    }
+    if (role && role !== tagName) {
+        description += ` with role ${role}`;
+    }
+    
+    const displayText = ariaLabel || label || text;
+    if (displayText) {
+        description += `: "${displayText}"`;
+    }
+    
+    return description;
+}
+
+/**
+ * Checks if an element is visible to the user.
+ */
+function isElementVisible(element: HTMLElement): boolean {
+    const style = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    
+    return style.display !== 'none' &&
+           style.visibility !== 'hidden' &&
+           style.opacity !== '0' &&
+           rect.width > 0 &&
+           rect.height > 0 &&
+           rect.top < window.innerHeight &&
+           rect.bottom > 0 &&
+           rect.left < window.innerWidth &&
+           rect.right > 0;
+}
+
+// --- END LOCATOR GENERATION HELPERS ---
+
+
 /**
  * Main message listener from the background script.
  */
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     const { type, payload } = request;
 
-    const handleAction = async (): Promise<{ success: boolean; error?: string }> => {
+    // Handle ping messages for connectivity checks
+    if (type === 'ping') {
+        sendResponse({ type: 'pong' });
+        return true;
+    }
+
+    const handleAction = async (): Promise<{ success: boolean; error?: string; snapshot?: any }> => {
         // --- 1. VALIDATE REQUEST ---
+        // Special case: browser_snapshot doesn't need a locator
+        if (type === 'browser_snapshot') {
+            const interactiveElements = Array.from(document.querySelectorAll(
+                'button, a, input, select, textarea, [role="button"], [role="link"], [role="textbox"], [role="combobox"], [tabindex]'
+            )).slice(0, 50).map((el, index) => {
+                const element = el as HTMLElement;
+                const textContent = element.textContent?.trim();
+                const ariaLabel = element.ariaLabel || element.getAttribute('aria-label');
+                const placeholder = (element as HTMLInputElement).placeholder;
+                
+                // Generate temp ref for debugging
+                const ref = `el-${index + 1}`;
+                element.setAttribute('data-mcp-ref', ref);
+                
+                // Generate locator suggestions with confidence scores
+                const suggestions = [];
+                
+                // Aria-role strategy (highest confidence for interactive elements)
+                const role = element.getAttribute('role') || getImplicitAriaRole(element);
+                if (role && (ariaLabel || textContent)) {
+                    suggestions.push({
+                        using: 'aria-role',
+                        role: role,
+                        name: ariaLabel || textContent,
+                        confidence: ariaLabel ? 'very-high' : 'high'
+                    });
+                }
+                
+                // Label strategy (high confidence for form elements)
+                const labelText = findLabelText(element);
+                if (labelText) {
+                    suggestions.push({
+                        using: 'label',
+                        text: labelText,
+                        confidence: 'high'
+                    });
+                }
+                
+                // Placeholder strategy (medium confidence)
+                if (placeholder) {
+                    suggestions.push({
+                        using: 'placeholder',
+                        text: placeholder,
+                        confidence: 'medium'
+                    });
+                }
+                
+                // CSS strategy (fallback, low confidence)
+                const cssSelector = generateMinimalCssSelector(element);
+                if (cssSelector) {
+                    suggestions.push({
+                        using: 'css',
+                        selector: cssSelector,
+                        confidence: 'low'
+                    });
+                }
+                
+                return {
+                    ref,
+                    description: getElementDescription(element),
+                    locators: suggestions,
+                    bounds: element.getBoundingClientRect(),
+                    isVisible: isElementVisible(element),
+                    isEnabled: !element.hasAttribute('disabled')
+                };
+            }).filter(el => el.locators.length > 0);
+            
+            return {
+                success: true,
+                snapshot: {
+                    page: {
+                        title: document.title,
+                        url: window.location.href,
+                        timestamp: new Date().toISOString()
+                    },
+                    elements: interactiveElements,
+                    summary: `Found ${interactiveElements.length} interactive elements. Use the 'locators' array to choose the best strategy for each element.`
+                }
+            };
+        }
+
         if (!payload?.locator) {
             return { success: false, error: `Action '${type}' is invalid: it is missing a locator object.` };
         }
@@ -110,7 +372,23 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
         // --- 2. FIND ELEMENT ---
         const element = findElementByLocator(payload.locator);
         if (!element) {
-            return { success: false, error: `Element not found for locator: ${locatorText}` };
+            // Enhanced error message with locator suggestions
+            const availableElements = Array.from(document.querySelectorAll('button, a, input, select, textarea, [role="button"], [role="link"]'))
+                .slice(0, 10)
+                .map(el => {
+                    const element = el as HTMLElement;
+                    const role = element.getAttribute('role') || getImplicitAriaRole(element);
+                    const text = element.textContent?.trim() || element.ariaLabel || (element as HTMLInputElement).placeholder;
+                    return { role, text: text?.substring(0, 50) };
+                })
+                .filter(el => el.text)
+                .map(el => `${el.role}: "${el.text}"`)
+                .join(', ');
+            
+            return { 
+                success: false, 
+                error: `Element not found for locator: ${locatorText}. Available elements on page: ${availableElements || 'none found'}. Tip: Call browser_snapshot first to see all available elements and their suggested locators.`
+            };
         }
 
         // --- 3. CHECK INTERACTABILITY ---

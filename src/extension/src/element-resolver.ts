@@ -128,6 +128,23 @@ function findElementInWindow(currentWindow: Window, locator: Locator): HTMLEleme
  * @returns The found HTMLElement, or null if it cannot be found anywhere on the page.
  */
 export function findElementByLocator(locator: Locator): HTMLElement | null {
+    // Validate locator structure before searching
+    if (!locator || !locator.using) {
+        console.warn('[MCP Element Resolver] Invalid locator structure:', locator);
+        return null;
+    }
+    
+    // Log search attempt for debugging
+    console.log('[MCP Element Resolver] Searching for element with locator:', locator);
+    
     // The search always begins from the top-level window where the content script is running.
-    return findElementInWindow(window, locator);
+    const result = findElementInWindow(window, locator);
+    
+    if (!result) {
+        console.warn('[MCP Element Resolver] Element not found for locator:', locator);
+    } else {
+        console.log('[MCP Element Resolver] Element found successfully:', result.tagName, result.id || result.className);
+    }
+    
+    return result;
 }

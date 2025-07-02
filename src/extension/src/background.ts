@@ -323,6 +323,21 @@ function initialize() {
             }
         }
     });
+
+    // Navigation listeners to ensure content script injection after navigation
+    chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+        // Inject content script when navigation completes
+        if (changeInfo.status === 'complete' && tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
+            ensureContentScriptInjected(tabId);
+        }
+    });
+
+    chrome.webNavigation.onCompleted.addListener((details) => {
+        // Only handle main frame navigation (not iframes)
+        if (details.frameId === 0) {
+            ensureContentScriptInjected(details.tabId);
+        }
+    });
     // Do not auto-connect on startup
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // Handle popup requests for connection or tab activation
@@ -356,6 +371,55 @@ function initialize() {
     if (autoConnectOnStartup && connectionStatus === 'disconnected') {
         setConnectionStatus('USER_CONNECT');
         connect();
+    }
+}
+
+/**
+ * Ensures the content script is injected into the specified tab.
+ * This is critical for reliable automation after navigation events.
+ * Uses programmatic injection as a fallback when manifest-based injection fails.
+ */
+async function ensureContentScriptInjected(tabId: number) {
+    // First try to ping the content script
+    try {
+        const response = await chrome.tabs.sendMessage(tabId, { type: 'ping' });
+        if (response?.type === 'pong') {
+            console.log(`[MCP Background] Content script already active in tab ${tabId}`);
+            return true;
+        }
+    } catch (e) {
+        // Content script not responding, need to inject
+    }
+
+    try {
+        // Get tab info to validate injection is appropriate
+        const tab = await chrome.tabs.get(tabId);
+        if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
+            console.log(`[MCP Background] Skipping content script injection for tab ${tabId} with URL: ${tab.url}`);
+            return false;
+        }
+
+        console.log(`[MCP Background] Injecting content script into tab ${tabId}`);
+        await chrome.scripting.executeScript({
+            target: { tabId },
+            files: ['src/content.ts']
+        });
+        
+        // Wait a moment for the script to initialize
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Verify injection worked
+        const response = await chrome.tabs.sendMessage(tabId, { type: 'ping' });
+        if (response?.type === 'pong') {
+            console.log(`[MCP Background] Content script successfully injected and verified in tab ${tabId}`);
+            return true;
+        } else {
+            console.warn(`[MCP Background] Content script injected but not responding in tab ${tabId}`);
+            return false;
+        }
+    } catch (e) {
+        console.warn(`[MCP Background] Failed to inject content script into tab ${tabId}:`, e);
+        return false;
     }
 }
 
@@ -410,6 +474,11 @@ async function onSocketMessage(event: MessageEvent) {
                 if (!activeTabId) {
                     console.warn(`[MCP Background] No activeTabId set. Cannot handle action: ${type}`);
                     throw new Error(`Action '${type}' requires an active tab. Use 'browser_list_tabs' then 'browser_set_active_tab' to select one.`);
+                }
+                // Ensure content script is available before forwarding DOM action
+                const injectionSuccess = await ensureContentScriptInjected(activeTabId);
+                if (!injectionSuccess) {
+                    throw new Error(`Unable to inject content script into active tab ${activeTabId} for action '${type}'`);
                 }
                 // Forward DOM action to content script in the active tab
                 responsePayload = await chrome.tabs.sendMessage(activeTabId, { type, payload });
@@ -677,6 +746,12 @@ async function handleBrowserSnapshot(payload: any): Promise<any> {
     console.log(`[MCP Background] handleBrowserSnapshot: Using automation tabId: ${tabIdToUse}${tabInfoResult.wasNewTabCreated ? ' (newly created)' : ''}`);
 
     try {
+        // Ensure content script is available before sending snapshot request
+        const injectionSuccess = await ensureContentScriptInjected(tabIdToUse);
+        if (!injectionSuccess) {
+            return { success: false, error: { code: 'CONTENT_SCRIPT_INJECTION_FAILED', message: 'Unable to inject content script into target tab' }, activeTab: tabInfoResult };
+        }
+        
         // Send the snapshot request to the content script in the automation tab
         const snapshot = await chrome.tabs.sendMessage(tabIdToUse, { type: 'browser_snapshot', payload });
         // Always include the tab info used for the snapshot in the response
