@@ -46,17 +46,17 @@ import type { SocketMessageMap } from "@/types/messages/ws.types.js";
 
 /**
  * Captures a full ARIA snapshot of the current page with locator suggestions.
- * 
+ *
  * CRITICAL FIRST STEP: Always call this before attempting to interact with page elements.
  * This provides:
  * - List of all interactive elements with descriptions
  * - Multiple locator strategies for each element with confidence ratings
  * - Temporary ref values for debugging (these change on each snapshot)
  * - Element visibility and interactability status
- * 
+ *
  * Use the 'locators' array in the response to choose the best strategy for each element.
  * Prefer locators with 'very-high' or 'high' confidence ratings.
- * 
+ *
  * Arguments: none
  */
 export const snapshot: Tool = {

@@ -404,10 +404,10 @@ async function ensureContentScriptInjected(tabId: number) {
             target: { tabId },
             files: ['src/content.ts']
         });
-        
+
         // Wait a moment for the script to initialize
         await new Promise(resolve => setTimeout(resolve, 100));
-        
+
         // Verify injection worked
         const response = await chrome.tabs.sendMessage(tabId, { type: 'ping' });
         if (response?.type === 'pong') {
@@ -751,7 +751,7 @@ async function handleBrowserSnapshot(payload: any): Promise<any> {
         if (!injectionSuccess) {
             return { success: false, error: { code: 'CONTENT_SCRIPT_INJECTION_FAILED', message: 'Unable to inject content script into target tab' }, activeTab: tabInfoResult };
         }
-        
+
         // Send the snapshot request to the content script in the automation tab
         const snapshot = await chrome.tabs.sendMessage(tabIdToUse, { type: 'browser_snapshot', payload });
         // Always include the tab info used for the snapshot in the response

@@ -102,7 +102,7 @@ function checkElementObscurity(element: Element): string | null {
 function getImplicitAriaRole(element: HTMLElement): string | null {
     const tagName = element.tagName.toLowerCase();
     const type = (element as HTMLInputElement).type?.toLowerCase();
-    
+
     switch (tagName) {
         case 'button':
             return 'button';
@@ -154,7 +154,7 @@ function findLabelText(element: HTMLElement): string | null {
             return label.textContent?.trim() || null;
         }
     }
-    
+
     // Check for nested label
     const parentLabel = element.closest('label');
     if (parentLabel) {
@@ -166,7 +166,7 @@ function findLabelText(element: HTMLElement): string | null {
         }
         return clone.textContent?.trim() || null;
     }
-    
+
     // Check for aria-labelledby
     const labelledBy = element.getAttribute('aria-labelledby');
     if (labelledBy) {
@@ -175,7 +175,7 @@ function findLabelText(element: HTMLElement): string | null {
             return labelElement.textContent?.trim() || null;
         }
     }
-    
+
     return null;
 }
 
@@ -187,13 +187,13 @@ function generateMinimalCssSelector(element: HTMLElement): string | null {
     if (element.id && document.querySelectorAll(`#${element.id}`).length === 1) {
         return `#${element.id}`;
     }
-    
+
     // Try name attribute for form elements
     const name = (element as HTMLInputElement).name;
     if (name && document.querySelectorAll(`[name="${name}"]`).length === 1) {
         return `[name="${name}"]`;
     }
-    
+
     // Try data attributes
     for (const attr of element.attributes) {
         if (attr.name.startsWith('data-') && attr.value) {
@@ -203,21 +203,21 @@ function generateMinimalCssSelector(element: HTMLElement): string | null {
             }
         }
     }
-    
+
     // Fall back to tag + classes if unique enough
     const tagName = element.tagName.toLowerCase();
     const classes = Array.from(element.classList)
         .filter(cls => cls.length > 0 && !cls.includes(' '))
         .slice(0, 3)
         .join('.');
-    
+
     if (classes) {
         const selector = `${tagName}.${classes}`;
         if (document.querySelectorAll(selector).length <= 3) {
             return selector;
         }
     }
-    
+
     return tagName;
 }
 
@@ -231,7 +231,7 @@ function getElementDescription(element: HTMLElement): string {
     const text = element.textContent?.trim().substring(0, 50);
     const label = findLabelText(element);
     const ariaLabel = element.ariaLabel || element.getAttribute('aria-label');
-    
+
     let description = tagName;
     if (type && type !== 'text') {
         description += ` (${type})`;
@@ -239,12 +239,12 @@ function getElementDescription(element: HTMLElement): string {
     if (role && role !== tagName) {
         description += ` with role ${role}`;
     }
-    
+
     const displayText = ariaLabel || label || text;
     if (displayText) {
         description += `: "${displayText}"`;
     }
-    
+
     return description;
 }
 
@@ -254,7 +254,7 @@ function getElementDescription(element: HTMLElement): string {
 function isElementVisible(element: HTMLElement): boolean {
     const style = window.getComputedStyle(element);
     const rect = element.getBoundingClientRect();
-    
+
     return style.display !== 'none' &&
            style.visibility !== 'hidden' &&
            style.opacity !== '0' &&
@@ -292,14 +292,14 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
                 const textContent = element.textContent?.trim();
                 const ariaLabel = element.ariaLabel || element.getAttribute('aria-label');
                 const placeholder = (element as HTMLInputElement).placeholder;
-                
+
                 // Generate temp ref for debugging
                 const ref = `el-${index + 1}`;
                 element.setAttribute('data-mcp-ref', ref);
-                
+
                 // Generate locator suggestions with confidence scores
                 const suggestions = [];
-                
+
                 // Aria-role strategy (highest confidence for interactive elements)
                 const role = element.getAttribute('role') || getImplicitAriaRole(element);
                 if (role && (ariaLabel || textContent)) {
@@ -310,7 +310,7 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
                         confidence: ariaLabel ? 'very-high' : 'high'
                     });
                 }
-                
+
                 // Label strategy (high confidence for form elements)
                 const labelText = findLabelText(element);
                 if (labelText) {
@@ -320,7 +320,7 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
                         confidence: 'high'
                     });
                 }
-                
+
                 // Placeholder strategy (medium confidence)
                 if (placeholder) {
                     suggestions.push({
@@ -329,7 +329,7 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
                         confidence: 'medium'
                     });
                 }
-                
+
                 // CSS strategy (fallback, low confidence)
                 const cssSelector = generateMinimalCssSelector(element);
                 if (cssSelector) {
@@ -339,7 +339,7 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
                         confidence: 'low'
                     });
                 }
-                
+
                 return {
                     ref,
                     description: getElementDescription(element),
@@ -349,7 +349,7 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
                     isEnabled: !element.hasAttribute('disabled')
                 };
             }).filter(el => el.locators.length > 0);
-            
+
             return {
                 success: true,
                 snapshot: {
@@ -384,9 +384,9 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
                 .filter(el => el.text)
                 .map(el => `${el.role}: "${el.text}"`)
                 .join(', ');
-            
-            return { 
-                success: false, 
+
+            return {
+                success: false,
                 error: `Element not found for locator: ${locatorText}. Available elements on page: ${availableElements || 'none found'}. Tip: Call browser_snapshot first to see all available elements and their suggested locators.`
             };
         }

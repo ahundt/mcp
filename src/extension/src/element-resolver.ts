@@ -133,18 +133,18 @@ export function findElementByLocator(locator: Locator): HTMLElement | null {
         console.warn('[MCP Element Resolver] Invalid locator structure:', locator);
         return null;
     }
-    
+
     // Log search attempt for debugging
     console.log('[MCP Element Resolver] Searching for element with locator:', locator);
-    
+
     // The search always begins from the top-level window where the content script is running.
     const result = findElementInWindow(window, locator);
-    
+
     if (!result) {
         console.warn('[MCP Element Resolver] Element not found for locator:', locator);
     } else {
         console.log('[MCP Element Resolver] Element found successfully:', result.tagName, result.id || result.className);
     }
-    
+
     return result;
 }
