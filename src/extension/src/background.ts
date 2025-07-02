@@ -34,17 +34,139 @@ import { v4 as uuidv4 } from 'uuid';
 // - Idempotent initialization and listener setup.
 // - Always responds to the server, even on error.
 // - Provides clear logs and user feedback via badge/icon.
+//
+// CONNECTION STATE MACHINE:
+//
+// ┌──────────────┐
+// │disconnected  │
+// └─────┬────────┘
+//       │ (user clicks connect or autoConnect)
+//       ▼
+// ┌──────────────┐
+// │ connecting   │
+// └─────┬────────┘
+//       │ (WebSocket open)
+//       ▼
+// ┌──────────────┐
+// │  connected   │
+// └─────┬────────┘
+//       │ (user clicks disconnect)
+//       ▼
+// ┌──────────────┐
+// │disconnecting │
+// └─────┬────────┘
+//       │ (socket closed)
+//       ▼
+// ┌──────────────┐
+// │disconnected  │
+// └─────┬────────┘
+//       │ (unexpected close/error)
+//       ▼
+// ┌──────────────┐
+// │reconnecting  │
+// └─────┬────────┘
+//       │ (WebSocket open)
+//       ▼
+// ┌──────────────┐
+// │  connected   │
+// └──────────────┘
+//
+// - Only connect in 'connecting' or 'reconnecting' states (see: connect())
+// - Only disconnect in 'connected' or 'connecting' states (see: disconnectFromMcpServer())
+// - UI and popup always reflect current state (see: updateIconAndBadge(), sendConnectionStatusToPopup())
+// - Protocol-initiated disconnect handled in onSocketMessage()
+// - State variables: background.ts, module-level state
+// - connect(): background.ts, connection logic
+// - disconnectFromMcpServer(): background.ts, disconnect logic
+// - UI update: updateIconAndBadge(), sendConnectionStatusToPopup()
+// - Protocol handler: onSocketMessage()
 // ====================================================================================
 
 // --- MODULE-LEVEL STATE ---
 const MCP_SERVER_URL = "ws://localhost:9002"; // Should be configurable.
 let mcpSocket: WebSocket | null = null;
 let activeTabId: number | null = null;
-let connectionStatus: 'disconnected' | 'connecting' | 'connected' | 'reconnecting' = 'disconnected';
+let connectionStatus: 'disconnected' | 'disconnecting' | 'connecting' | 'connected' | 'reconnecting' = 'disconnected';
 let wasConnected = false;
 let isConnecting = false;
 let backoff = 1000;
 let initialized = false;
+const autoConnectOnStartup = false; // Set to true to auto-connect on startup
+let shouldReconnect = true; // Controls whether to reconnect on socket close
+
+// --- Connection State Machine Events ---
+type ConnectionEvent =
+  | 'USER_CONNECT'
+  | 'USER_DISCONNECT'
+  | 'SOCKET_OPEN'
+  | 'SOCKET_CLOSE'
+  | 'SOCKET_ERROR'
+  | 'PROTOCOL_DISCONNECT';
+
+function transitionConnectionStatus(
+  current: typeof connectionStatus,
+  event: ConnectionEvent
+): typeof connectionStatus {
+  switch (current) {
+    case 'disconnected':
+      if (event === 'USER_CONNECT') return 'connecting';
+      return current;
+    case 'connecting':
+      if (event === 'SOCKET_OPEN') return 'connected';
+      if (event === 'USER_DISCONNECT' || event === 'PROTOCOL_DISCONNECT') return 'disconnecting';
+      if (event === 'SOCKET_ERROR' || event === 'SOCKET_CLOSE') return 'reconnecting';
+      return current;
+    case 'connected':
+      if (event === 'USER_DISCONNECT' || event === 'PROTOCOL_DISCONNECT') return 'disconnecting';
+      if (event === 'SOCKET_ERROR' || event === 'SOCKET_CLOSE') return 'reconnecting';
+      return current;
+    case 'disconnecting':
+      if (event === 'SOCKET_CLOSE') return 'disconnected';
+      return current;
+    case 'reconnecting':
+      if (event === 'SOCKET_OPEN') return 'connected';
+      if (event === 'USER_DISCONNECT' || event === 'PROTOCOL_DISCONNECT') return 'disconnecting';
+      return current;
+    default:
+      return current;
+  }
+}
+
+function setConnectionStatus(event: ConnectionEvent) {
+  const prev = connectionStatus;
+  const next = transitionConnectionStatus(connectionStatus, event);
+  if (prev !== next) {
+    connectionStatus = next;
+    updateIconAndBadge();
+    sendConnectionStatusToPopup();
+    console.log(`[MCP] State: ${prev} -> ${next} via ${event}`);
+  }
+}
+
+/**
+ * Cleanly disconnects from the MCP server, closes the socket, updates status, and notifies UI.
+ * Can be called from UI, protocol, or error handlers.
+ */
+function disconnectFromMcpServer(reason = "User requested disconnect") {
+    if (
+        connectionStatus !== 'connected' &&
+        connectionStatus !== 'connecting' &&
+        connectionStatus !== 'reconnecting'
+    ) {
+        console.log('[MCP] disconnect called but not in connected/connecting/reconnecting state.');
+        return;
+    }
+    setConnectionStatus('USER_DISCONNECT');
+    shouldReconnect = false; // Prevent reconnect on this close
+    if (mcpSocket && mcpSocket.readyState === WebSocket.OPEN) {
+        try {
+            mcpSocket.send(JSON.stringify({ type: 'disconnect' })); // Optionally notify server
+        } catch (e) { /* ignore */ }
+        mcpSocket.close(1000, reason);
+    } else {
+        setConnectionStatus('SOCKET_CLOSE');
+    }
+}
 
 /**
  * Updates the extension icon and badge to reflect the current connection and automation state.
@@ -77,7 +199,11 @@ function connect() {
         return;
     }
     isConnecting = true;
-    connectionStatus = 'connecting';
+    // Only allow connect in correct states
+    if (connectionStatus !== 'connecting' && connectionStatus !== 'reconnecting') {
+        console.log('[MCP] connect() called but not in connecting or reconnecting state.');
+        return;
+    }
     updateIconAndBadge();
     sendConnectionStatusToPopup();
     try {
@@ -85,7 +211,7 @@ function connect() {
     } catch (e) {
         console.error("[MCP Background] Failed to create WebSocket:", e);
         isConnecting = false;
-        connectionStatus = 'disconnected';
+        setConnectionStatus('SOCKET_ERROR');
         // Always retry, even if creation fails
         setTimeout(connect, backoff);
         backoff = Math.min(backoff * 2, 30000);
@@ -95,34 +221,35 @@ function connect() {
     // On successful connection
     mcpSocket.onopen = () => {
         isConnecting = false;
-        connectionStatus = 'connected';
+        setConnectionStatus('SOCKET_OPEN');
         wasConnected = true;
         backoff = 1000;
-        updateIconAndBadge();
-        sendConnectionStatusToPopup();
         console.log("[MCP Background] Connection established.");
     };
     // On connection close, clean up and schedule reconnect
     mcpSocket.onclose = () => {
         isConnecting = false;
-        connectionStatus = wasConnected ? 'reconnecting' : 'disconnected';
+        setConnectionStatus('SOCKET_CLOSE');
         wasConnected = false;
         mcpSocket = null;
         activeTabId = null;
-        updateIconAndBadge();
-        sendConnectionStatusToPopup();
+        if (!shouldReconnect) {
+            shouldReconnect = true; // Reset for next connection
+            backoff = 1000;
+            return; // Do not reconnect after user/protocol disconnect
+        }
         console.warn(`[MCP Background] Connection closed. Reconnecting in ${backoff / 1000}s...`);
-        // Always retry, even if closed repeatedly
-        setTimeout(connect, backoff);
+        setTimeout(() => {
+            setConnectionStatus('SOCKET_ERROR');
+            connect();
+        }, backoff);
         backoff = Math.min(backoff * 2, 30000);
     };
     // On error, log and schedule reconnect
     mcpSocket.onerror = (error) => {
         isConnecting = false;
-        connectionStatus = wasConnected ? 'reconnecting' : 'disconnected';
+        setConnectionStatus('SOCKET_ERROR');
         mcpSocket = null;
-        updateIconAndBadge();
-        sendConnectionStatusToPopup();
         console.error("[MCP Background] WebSocket error:", error);
         // Always retry, even if error is persistent
         setTimeout(connect, backoff);
@@ -140,23 +267,43 @@ function initialize() {
     if (initialized) return;
     initialized = true;
     // chrome.action.setIcon({ path: "icons/inactive.svg" });
-    chrome.runtime.onInstalled.addListener(connect);
-    chrome.runtime.onStartup.addListener(connect);
+    chrome.runtime.onInstalled.addListener(() => {
+        setConnectionStatus('SOCKET_CLOSE');
+    });
+    chrome.runtime.onStartup.addListener(() => {
+        setConnectionStatus('SOCKET_CLOSE');
+    });
     chrome.alarms.create('mcpHeartbeat', { periodInMinutes: 0.1 });
     chrome.alarms.onAlarm.addListener(alarm => {
-        if (alarm.name === 'mcpHeartbeat' && (!mcpSocket || mcpSocket.readyState !== WebSocket.OPEN)) connect();
+        if (alarm.name === 'mcpHeartbeat' && (!mcpSocket || mcpSocket.readyState !== WebSocket.OPEN)) {
+            if (connectionStatus === 'connecting' || connectionStatus === 'reconnecting') {
+                connect();
+            }
+        }
     });
-    connect();
+    // Do not auto-connect on startup
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // Handle popup requests for connection or tab activation
         if (request.type === 'connect') {
+            setConnectionStatus('USER_CONNECT');
+            if (connectionStatus === 'connecting') connect();
             if (request.tabId) handleSetActiveTab(request.tabId, true).then(() => sendResponse({ status: 'Tab activated.' }));
-            else sendResponse({ status: 'Already auto-connecting.' });
+            else sendResponse({ status: 'Connecting...' });
         } else if (request.type === 'getConnectionStatus') {
             sendResponse({ status: connectionStatus });
+        } else if (request.type === 'disconnect') {
+            setConnectionStatus('USER_DISCONNECT');
+            disconnectFromMcpServer();
+            sendResponse({ status: 'disconnecting' });
+            return true;
         }
         return true;
     });
+
+    if (autoConnectOnStartup && connectionStatus === 'disconnected') {
+        setConnectionStatus('USER_CONNECT');
+        connect();
+    }
 }
 
 /**
@@ -201,6 +348,11 @@ async function onSocketMessage(event: MessageEvent) {
                 responsePayload = await handleBrowserSnapshot(payload);
                 break;
             }
+            case 'server_disconnect':
+                setConnectionStatus('PROTOCOL_DISCONNECT');
+                disconnectFromMcpServer('Server requested disconnect');
+                responsePayload = { success: true, message: 'Disconnected by server request.' };
+                break;
             default:
                 if (!activeTabId) {
                     console.warn(`[MCP Background] No activeTabId set. Cannot handle action: ${type}`);

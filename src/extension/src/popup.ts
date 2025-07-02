@@ -1,28 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
   const connectBtn = document.getElementById('connectBtn');
-
-  function updateButtonUI(status) {
-    if (!connectBtn) return;
-
-    switch (status) {
-      case 'disconnected':
-        connectBtn.textContent = 'Connect';
-        connectBtn.style.backgroundColor = 'grey';
-        break;
-      case 'connecting':
-        connectBtn.textContent = 'Connecting...';
-        connectBtn.style.backgroundColor = 'orange';
-        break;
-      case 'connected':
-        connectBtn.textContent = 'Connected';
-        connectBtn.style.backgroundColor = 'green';
-        break;
-      case 'reconnecting':
-        connectBtn.textContent = 'Reconnecting...';
-        connectBtn.style.backgroundColor = 'red';
-        break;
-    }
-  }
+  const cancelBtn = document.getElementById('cancelBtn');
 
   if (connectBtn) {
     // Request initial status
@@ -51,5 +29,46 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
     });
+  }
+
+  if (cancelBtn) {
+    cancelBtn.textContent = '❌';
+    cancelBtn.onclick = () => {
+      chrome.runtime.sendMessage({ type: 'disconnect' }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('Error disconnecting:', chrome.runtime.lastError.message);
+        } else {
+          updateButtonUI('disconnecting');
+          setTimeout(() => window.close(), 500);
+        }
+      });
+    };
+  }
+
+  function updateButtonUI(status) {
+    if (!connectBtn) return;
+
+    switch (status) {
+      case 'disconnected':
+        connectBtn.textContent = 'Connect 🚀';
+        connectBtn.style.backgroundColor = 'grey';
+        break;
+      case 'connecting':
+        connectBtn.textContent = 'Connecting... ⏳';
+        connectBtn.style.backgroundColor = 'orange';
+        break;
+      case 'connected':
+        connectBtn.textContent = 'Connected ✅';
+        connectBtn.style.backgroundColor = 'green';
+        break;
+      case 'reconnecting':
+        connectBtn.textContent = 'Reconnecting... ⏳';
+        connectBtn.style.backgroundColor = 'red';
+        break;
+      case 'disconnecting':
+        connectBtn.textContent = 'Disconnecting... 🟡';
+        connectBtn.style.backgroundColor = 'yellow';
+        break;
+    }
   }
 });
