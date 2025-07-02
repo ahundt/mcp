@@ -4,33 +4,33 @@ import { z } from "zod";
 /**
  * 🎯 LOCATOR STRATEGY GUIDE FOR AI AGENTS
  * =====================================
- * 
+ *
  * This guide helps AI choose the most reliable locator strategies for browser automation.
  * Following these recommendations dramatically improves automation success rates.
- * 
+ *
  * 📋 PRIORITY ORDER (Use this exact order):
- * 
+ *
  * 1. 🥇 ARIA-ROLE STRATEGY (Most Reliable)
  *    ----------------------------------------
  *    • BEST FOR: Buttons, links, dialogs, navigation, interactive elements
  *    • WHY: Uses semantic web standards that persist across UI changes
  *    • EXAMPLE: {using: "aria-role", role: "button", name: "Submit"}
  *    • SUCCESS RATE: ~90% for properly labeled interactive elements
- * 
+ *
  * 2. 🥈 LABEL STRATEGY (Excellent for Forms)
  *    ----------------------------------------
  *    • BEST FOR: Input fields, textareas, select boxes, checkboxes
  *    • WHY: Form labels are stable and required for accessibility
  *    • EXAMPLE: {using: "label", text: "Email Address"}
  *    • SUCCESS RATE: ~85% for properly labeled form elements
- * 
+ *
  * 3. 🥉 PLACEHOLDER STRATEGY (Good Fallback)
  *    ----------------------------------------
  *    • BEST FOR: Input fields without labels but with placeholder text
  *    • WHY: Placeholder text is usually stable across updates
  *    • EXAMPLE: {using: "placeholder", text: "Enter your email"}
  *    • SUCCESS RATE: ~70% when placeholder text is descriptive
- * 
+ *
  * 4. 🔧 CSS STRATEGY (Fallback Only)
  *    --------------------------------
  *    • BEST FOR: When semantic strategies aren't available
@@ -38,21 +38,21 @@ import { z } from "zod";
  *    • AVOID: Complex DOM paths, brittle class names, positional selectors
  *    • EXAMPLE: {using: "css", selector: "input[name='email']"}
  *    • SUCCESS RATE: ~60% when using stable attributes
- * 
+ *
  * 5. ⚠️  REF STRATEGY (Debugging Only)
  *    ----------------------------------
  *    • NEVER USE: For production automation
  *    • ONLY FOR: Quick debugging and development
  *    • WHY: Temporary IDs that change between page loads
  *    • SUCCESS RATE: ~10% in real scenarios
- * 
+ *
  * 🚨 CRITICAL AI WORKFLOW:
  * 1. ALWAYS call browser_snapshot first to get current page context
  * 2. Look for suggested locators in the snapshot response
  * 3. Choose the highest-priority strategy that matches available elements
  * 4. If first choice fails, try next strategy down the priority list
  * 5. Include error recovery in your automation logic
- * 
+ *
  * 💡 ERROR RECOVERY PATTERNS:
  * • Locator not found → Take fresh snapshot, check if page changed
  * • Multiple matches → Add elementType or use more specific selector

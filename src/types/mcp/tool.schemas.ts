@@ -2,7 +2,7 @@
 // ===================================================================
 // BROWSER AUTOMATION TOOL SCHEMAS - AI-OPTIMIZED VERSION
 // ===================================================================
-// 
+//
 // This file contains enhanced tool schemas designed specifically for AI models,
 // with comprehensive guidance, workflow hints, and safeguards to prevent common
 // mistakes and misuse. Each schema includes:
@@ -82,7 +82,7 @@ import { LocatorSchema } from "./locator.schemas.js";
 // ========================
 //
 // Common Errors and Solutions:
-// 
+//
 // 1. "Element not found" → Take new snapshot, element may have changed
 // 2. "Tab not found" → Call browser_list_tabs and browser_set_active_tab
 // 3. "Locator ambiguous" → Add elementType to label locators, use more specific CSS

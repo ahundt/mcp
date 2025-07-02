@@ -8,6 +8,7 @@ import type { Resource } from "@/resources/resource";
 import { createServerWithTools } from "@/server";
 import * as common from "@/tools/common";
 import * as snapshotTools from "@/tools/snapshot";
+import * as bulk from "@/tools/bulk";
 import type { Tool } from "@/types/mcp/tool.schemas";
 import packageJSON from "../package.json";
 
@@ -45,6 +46,11 @@ const allTools: Tool[] = [
     common.listTabs,                // Simple Tool - no snapshots
     common.getConsoleLogs,          // Simple Tool - no snapshots
     common.screenshot,              // Simple Tool - no snapshots
+
+    // Bulk form filling tools (using built-in defaults)
+    bulk.bulkFillForm(),           // Default: snapshots enabled (true)
+    bulk.discoverFormFields,       // Simple Tool - no snapshots (discovery only)
+    bulk.smartFillForm(),          // Default: snapshots enabled (true)
 ];
 
 const resources: Resource[] = [];

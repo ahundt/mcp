@@ -4,7 +4,10 @@ import {
   ListResourcesRequestSchema,
   ListToolsRequestSchema,
   ReadResourceRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
 
 import { Context } from "@/context";
 import type { Resource } from "@/resources/resource";
@@ -27,6 +30,7 @@ export async function createServerWithTools(options: Options): Promise<Server> {
       capabilities: {
         tools: {},
         resources: {},
+        prompts: {},
       },
     },
   );
@@ -103,6 +107,45 @@ export async function createServerWithTools(options: Options): Promise<Server> {
 
     const contents = await resource.read(context, request.params.uri);
     return { contents };
+  });
+
+  // Add prompt handlers for schema guidance
+  server.setRequestHandler(ListPromptsRequestSchema, async () => {
+    return {
+      prompts: SCHEMA_GUIDANCE_PROMPTS.map(prompt => ({
+        name: prompt.name,
+        description: prompt.description,
+        arguments: prompt.arguments
+      }))
+    };
+  });
+
+  server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    const promptName = request.params.name;
+    const args = request.params.arguments || {};
+    
+    try {
+      const content = generatePromptResponse(promptName, args);
+      return {
+        messages: [{
+          role: "assistant" as const,
+          content: {
+            type: "text" as const,
+            text: content
+          }
+        }]
+      };
+    } catch (error) {
+      return {
+        messages: [{
+          role: "assistant" as const,
+          content: {
+            type: "text" as const,
+            text: `Error generating prompt response: ${String(error)}`
+          }
+        }]
+      };
+    }
   });
 
   // Save the original close method to avoid recursion
