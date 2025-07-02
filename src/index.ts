@@ -8,7 +8,7 @@ import type { Resource } from "@/resources/resource";
 import { createServerWithTools } from "@/server";
 import * as common from "@/tools/common";
 import * as snapshotTools from "@/tools/snapshot";
-import type { Tool } from "@/tools/tool";
+import type { Tool } from "@/types/mcp/tool.schemas";
 import packageJSON from "../package.json";
 
 function setupExitWatchdog(server: Server) {
@@ -22,7 +22,7 @@ function setupExitWatchdog(server: Server) {
 // This list now correctly references all the tools from the updated files.
 
 const allTools: Tool[] = [
-    // Snapshot/Interaction tools
+    // Snapshot/Interaction tools (always with snapshot enabled)
     snapshotTools.snapshot,
     snapshotTools.click,
     snapshotTools.hover,

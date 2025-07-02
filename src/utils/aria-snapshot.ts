@@ -1,5 +1,5 @@
 import { Context } from "@/context";
-import { ToolResult } from "@/tools/tool";
+import { ToolResult } from "@/types/mcp/tool.schemas";
 
 /**
  * Converts a TabInfo object to a YAML string for YAML output.
@@ -47,7 +47,7 @@ export async function captureAriaSnapshot(
       content: [
         {
           type: "text",
-          result,
+          text: JSON.stringify(result, null, 2),
         },
       ],
     };

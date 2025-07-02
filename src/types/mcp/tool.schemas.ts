@@ -1,5 +1,11 @@
-// mcp/src/types/mcp/tool.ts
+// mcp/src/types/mcp/tool.schemas.ts
 import { z } from "zod";
+import type {
+  ImageContent,
+  TextContent,
+} from "@modelcontextprotocol/sdk/types.js";
+import type { JsonSchema7Type } from "zod-to-json-schema";
+import type { Context } from "@/context";
 import { LocatorSchema } from "./locator.schemas.js";
 
 /**
@@ -17,6 +23,60 @@ export const TabInfoSchema = z.object({
     isAudible: z.boolean(),
     isPinned: z.boolean(),
 });
+
+export type TabInfo = z.infer<typeof TabInfoSchema>;
+
+// ===== CONTENT TYPE SCHEMAS =====
+export const TextContentSchema = z.object({
+  type: z.literal("text"),
+  text: z.string(),
+});
+
+export const JsonContentSchema = z.object({
+  type: z.literal("json"),
+  data: z.any(),
+});
+
+export const ImageContentSchema = z.object({
+  type: z.literal("image"),
+  data: z.string(),
+  mimeType: z.string(),
+});
+
+export const ContentSchema = z.union([TextContentSchema, JsonContentSchema, ImageContentSchema]);
+
+// ===== TOOL INTERFACE SCHEMAS =====
+export const ToolSchemaZod = z.object({
+  name: z.string(),
+  description: z.string(),
+  inputSchema: z.any(), // JsonSchema7Type
+});
+
+export const ToolResultZod = z.object({
+  content: z.array(ContentSchema),
+  isError: z.boolean().optional(),
+});
+
+// ===== TOOL INTERFACE TYPES =====
+export type ToolSchema = z.infer<typeof ToolSchemaZod>;
+export type ToolResult = z.infer<typeof ToolResultZod>;
+
+export type Tool = {
+  schema: ToolSchema;
+  handle: (
+    context: Context,
+    params?: Record<string, any>,
+  ) => Promise<ToolResult>;
+};
+
+export type ToolFactory = (snapshot?: boolean) => Tool;
+
+// ===== EXTENSION INTERFACE FOR CUSTOMIZATION =====
+export interface ToolExtensions<T = any> {
+  actionName?: string;
+  payloadBuilder?: (params: T) => any;
+  successMessage?: (params: T) => string;
+}
 
 // Shared result schema for browser_get_active_tab_for_automation and browser_snapshot.activeTab
 export const GetActiveTabForAutomationTool = z.object({

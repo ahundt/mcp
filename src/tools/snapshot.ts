@@ -7,12 +7,13 @@ import {
     HoverTool,
     SelectOptionTool,
     TypeTool,
+    Tool,
+    ToolFactory,
 } from "../types/mcp/tool.schemas.js";
 import type { Context } from "@/context.js";
 import { captureAriaSnapshot } from "@/utils/aria-snapshot.js";
 import { stringifyLocator } from "../utils/locator.stringifier.js";
-import { makeCommonTool } from "./common.js";
-import type { Tool } from "./tool.js";
+import { makeCommonTool, makeToolFactory } from "./common.js";
 import type { SocketMessageMap } from "@/types/messages/ws.types.js";
 
 /**
@@ -47,58 +48,58 @@ export const snapshot: Tool = {
  * Clicks an element in the active browser tab, identified by a locator. Returns a snapshot after the click.
  * Arguments: locator (any)
  */
-export const click: Tool = makeCommonTool(
-  "browser_click",
+export const click: ToolFactory = makeToolFactory(
   ClickTool,
-  ({ locator }) => ({ locator }),
-  ({ locator }) => `Clicked element found via ${stringifyLocator(locator)}`,
-  true
+  {
+    actionName: "browser_click",
+    successMessage: ({ locator }: any) => `Clicked element found via ${stringifyLocator(locator)}`,
+  }
 );
 
 /**
  * Drags an element from a start locator to an end locator in the active browser tab. Returns a snapshot after the drag.
  * Arguments: startElement (any), endElement (any)
  */
-export const drag: Tool = makeCommonTool(
-  "browser_drag",
+export const drag: ToolFactory = makeToolFactory(
   DragTool,
-  ({ startElement, endElement }) => ({ startElement, endElement }),
-  ({ startElement, endElement }) => `Dragged element from ${stringifyLocator(startElement)} to ${stringifyLocator(endElement)}`,
-  true
+  {
+    actionName: "browser_drag",
+    successMessage: ({ startElement, endElement }: any) => `Dragged element from ${stringifyLocator(startElement)} to ${stringifyLocator(endElement)}`,
+  }
 );
 
 /**
  * Hovers over an element in the active browser tab, identified by a locator. Returns a snapshot after the hover.
  * Arguments: locator (any)
  */
-export const hover: Tool = makeCommonTool(
-  "browser_hover",
+export const hover: ToolFactory = makeToolFactory(
   HoverTool,
-  ({ locator }) => ({ locator }),
-  ({ locator }) => `Hovered over element found via ${stringifyLocator(locator)}`,
-  true
+  {
+    actionName: "browser_hover",
+    successMessage: ({ locator }: any) => `Hovered over element found via ${stringifyLocator(locator)}`,
+  }
 );
 
 /**
  * Types text into an element in the active browser tab, identified by a locator. Optionally submits after typing. Returns a snapshot after typing.
  * Arguments: locator (any), text (string), submit? (boolean)
  */
-export const type: Tool = makeCommonTool(
-  "browser_type",
+export const type: ToolFactory = makeToolFactory(
   TypeTool,
-  ({ locator, text, submit }) => ({ locator, text, submit }),
-  ({ locator, text }) => `Typed "${text}" into element found via ${stringifyLocator(locator)}`,
-  true
+  {
+    actionName: "browser_type",
+    successMessage: ({ locator, text }: any) => `Typed "${text}" into element found via ${stringifyLocator(locator)}`,
+  }
 );
 
 /**
  * Selects an option in a dropdown or select element in the active browser tab, identified by a locator. Returns a snapshot after selection.
  * Arguments: locator (any), values (any)
  */
-export const selectOption: Tool = makeCommonTool(
-  "browser_select_option",
+export const selectOption: ToolFactory = makeToolFactory(
   SelectOptionTool,
-  ({ locator, values }) => ({ locator, values }),
-  ({ locator }) => `Selected option in element found via ${stringifyLocator(locator)}`,
-  true
+  {
+    actionName: "browser_select_option",
+    successMessage: ({ locator }: any) => `Selected option in element found via ${stringifyLocator(locator)}`,
+  }
 );

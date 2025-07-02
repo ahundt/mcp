@@ -124,6 +124,7 @@ async function runTest() {
             console.log(`[Harness Status] ${TRANSPORT}, Client: ${clientType}, Msg count: ${messageCount}, Rate: ${rate.toFixed(2)} msg/s, Uptime: ${totalElapsed.toFixed(1)}s`);
             // Send browser_list_tabs command
             try {
+                // -- Send the list tabs command and measure round-trip time ---
                 lastSendTime = Date.now();
                 const result = await client.callTool({ name: "browser_list_tabs", arguments: {} });
                 lastRecvTime = Date.now();
@@ -132,16 +133,24 @@ async function runTest() {
                 console.log(`[Harness] Received result:`);
                 console.dir(result, { depth: null, colors: true });
                 console.log(`[Harness] Round-trip: ${roundTrip.toFixed(3)}s, Elapsed: ${totalElapsed.toFixed(3)}s, Msg count: ${messageCount}, Rate: ${rate.toFixed(2)} msg/s`);
-                // Set sucessfullyListedTabs only if no error in result
-                successfullyListedTabs = !(result && result.error);
-                // Navigate after first successful tabs retrieval, only once, and only after a successful tabs call
+
+                // -- Check if the result contains tabs and if any are active for automation --
+
+                // get the currently active tab and navigate to the test page
+                const activeTabResult = await client.callTool({ name: "browser_get_active_tab_for_automation", arguments: {} });
+                console.log("[Harness] Active tab info:");
+                console.dir(activeTabResult, { depth: null, colors: true });
+
+                 // Set sucessfullyListedTabs only if no error in result
+                successfullyListedTabs = !(result && result.error && activeTabResult && activeTabResult.error);
+
+                // Navigate to the test page after first successful tabs retrieval, only once, and only after a successful tabs call
                 if (successfullyListedTabs && NAVIGATE_ON_START && !hasNavigated ) {
-                    // get the currently active tab and navigate to the test page
-                    const activeTabResult = await client.callTool({ name: "browser_get_active_tab_for_automation", arguments: {} });
-                    console.log("[Harness] Active tab info:");
-                    console.dir(activeTabResult, { depth: null, colors: true });
                     console.log(`[Harness] Successfully listed tabs, navigating to test page: ${TEST_PAGE_URL}`);
-                    await navigateToTestPage(client);
+                    const navigateResult = await navigateToTestPage(client);
+                    // print the test page data
+                    console.log("[Harness] Test page navigation result:");
+                    console.dir(navigateResult, { depth: null, colors: true });
                     hasNavigated = true;
                 }
             } catch (err) {
