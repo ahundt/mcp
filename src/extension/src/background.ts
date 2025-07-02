@@ -402,7 +402,7 @@ async function ensureContentScriptInjected(tabId: number) {
         console.log(`[MCP Background] Injecting content script into tab ${tabId}`);
         await chrome.scripting.executeScript({
             target: { tabId },
-            files: ['src/content.ts']
+            files: ['src/content.ts']  // This path should match manifest.json content_scripts
         });
 
         // Wait a moment for the script to initialize
