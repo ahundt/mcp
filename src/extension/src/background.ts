@@ -86,13 +86,14 @@ import { v4 as uuidv4 } from 'uuid';
 const MCP_SERVER_URL = "ws://localhost:9002"; // Should be configurable.
 let mcpSocket: WebSocket | null = null;
 let activeTabId: number | null = null;
-let connectionStatus: 'disconnected' | 'disconnecting' | 'connecting' | 'connected' | 'reconnecting' = 'disconnected';
+let connectionStatus: 'disconnected' | 'disconnecting' | 'connecting' | 'connected' | 'reconnecting' | 'force_killing' = 'disconnected';
 let wasConnected = false;
 let isConnecting = false;
 let backoff = 1000;
 let initialized = false;
 const autoConnectOnStartup = false; // Set to true to auto-connect on startup
 let shouldReconnect = true; // Controls whether to reconnect on socket close
+let cancelTimestamps: number[] = [];
 
 // --- Connection State Machine Events ---
 type ConnectionEvent =
@@ -101,7 +102,9 @@ type ConnectionEvent =
   | 'SOCKET_OPEN'
   | 'SOCKET_CLOSE'
   | 'SOCKET_ERROR'
-  | 'PROTOCOL_DISCONNECT';
+  | 'PROTOCOL_DISCONNECT'
+  | 'FORCE_KILL'
+  | 'FORCE_KILL_DONE'; // Added FORCE_KILL_DONE
 
 function transitionConnectionStatus(
   current: typeof connectionStatus,
@@ -110,24 +113,32 @@ function transitionConnectionStatus(
   switch (current) {
     case 'disconnected':
       if (event === 'USER_CONNECT') return 'connecting';
+      if (event === 'FORCE_KILL') return 'force_killing';
       return current;
     case 'connecting':
       if (event === 'SOCKET_OPEN') return 'connected';
       if (event === 'USER_DISCONNECT' || event === 'PROTOCOL_DISCONNECT') return 'disconnecting';
       if (event === 'SOCKET_ERROR' || event === 'SOCKET_CLOSE') return 'reconnecting';
+      if (event === 'FORCE_KILL') return 'force_killing';
       return current;
     case 'connected':
       if (event === 'USER_DISCONNECT' || event === 'PROTOCOL_DISCONNECT') return 'disconnecting';
       if (event === 'SOCKET_ERROR' || event === 'SOCKET_CLOSE') return 'reconnecting';
+      if (event === 'FORCE_KILL') return 'force_killing';
       return current;
     case 'disconnecting':
-      if (event === 'SOCKET_CLOSE') return 'disconnected';
+      if (event === 'SOCKET_CLOSE' || event === 'FORCE_KILL') return 'force_killing';
       return current;
     case 'reconnecting':
       if (event === 'SOCKET_OPEN') return 'connected';
       if (event === 'USER_DISCONNECT' || event === 'PROTOCOL_DISCONNECT') return 'disconnecting';
+      if (event === 'FORCE_KILL') return 'force_killing';
+      return current;
+    case 'force_killing':
+      if (event === 'FORCE_KILL_DONE') return 'disconnected';
       return current;
     default:
+      if (event === 'FORCE_KILL') return 'force_killing';
       return current;
   }
 }
@@ -166,6 +177,33 @@ function disconnectFromMcpServer(reason = "User requested disconnect") {
     } else {
         setConnectionStatus('SOCKET_CLOSE');
     }
+}
+
+function forceKillSocket() {
+    shouldReconnect = false;
+    if (mcpSocket) {
+        try { mcpSocket.onopen = null; } catch {}
+        try { mcpSocket.onerror = null; } catch {}
+        try { mcpSocket.onmessage = null; } catch {}
+        // Instead of removing onclose, we want to handle it
+        const socketToClose = mcpSocket;
+        let forceKillTimeout: ReturnType<typeof setTimeout> | null = null;
+        mcpSocket = null;
+        setConnectionStatus('FORCE_KILL');
+        cancelTimestamps = [];
+        // Wait for onclose, or fallback to timeout
+        const finishForceKill = () => {
+            setConnectionStatus('FORCE_KILL_DONE');
+            if (forceKillTimeout) clearTimeout(forceKillTimeout);
+        };
+        socketToClose.onclose = finishForceKill;
+        try { socketToClose.close(); } catch {}
+        // Failsafe: if onclose doesn't fire, force transition after 2s
+        forceKillTimeout = setTimeout(finishForceKill, 2000);
+        return;
+    }
+    setConnectionStatus('FORCE_KILL_DONE');
+    cancelTimestamps = [];
 }
 
 /**
@@ -229,7 +267,11 @@ function connect() {
     // On connection close, clean up and schedule reconnect
     mcpSocket.onclose = () => {
         isConnecting = false;
-        setConnectionStatus('SOCKET_CLOSE');
+        if (connectionStatus === 'force_killing') {
+            setConnectionStatus('FORCE_KILL_DONE');
+        } else {
+            setConnectionStatus('SOCKET_CLOSE');
+        }
         wasConnected = false;
         mcpSocket = null;
         activeTabId = null;
@@ -285,13 +327,24 @@ function initialize() {
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // Handle popup requests for connection or tab activation
         if (request.type === 'connect') {
+            shouldReconnect = true;
             setConnectionStatus('USER_CONNECT');
-            if (connectionStatus === 'connecting') connect();
+            connect();
             if (request.tabId) handleSetActiveTab(request.tabId, true).then(() => sendResponse({ status: 'Tab activated.' }));
             else sendResponse({ status: 'Connecting...' });
         } else if (request.type === 'getConnectionStatus') {
             sendResponse({ status: connectionStatus });
         } else if (request.type === 'disconnect') {
+            // Track cancel presses for force kill
+            const now = Date.now();
+            cancelTimestamps = cancelTimestamps.filter(ts => now - ts < 3000);
+            cancelTimestamps.push(now);
+            if (cancelTimestamps.length >= 3) {
+                forceKillSocket();
+                cancelTimestamps = [];
+                sendResponse({ status: 'force_killed' });
+                return true;
+            }
             setConnectionStatus('USER_DISCONNECT');
             disconnectFromMcpServer();
             sendResponse({ status: 'disconnecting' });
