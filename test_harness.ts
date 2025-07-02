@@ -25,12 +25,31 @@ const MCP_SERVER_URL = process.env.MCP_SERVER_URL || "ws://localhost:9002";
 const TRANSPORT = process.env.MCP_TRANSPORT === "websocket" ? "websocket" : "stdio";
 const INTERACTIVE = process.env.MCP_INTERACTIVE === "1";
 const STATUS_INTERVAL_MS = 10000;
+const NAVIGATE_ON_START = process.env.MCP_NAVIGATE_ON_START !== "0"; // default true
+const TEST_PAGE_URL = "https://www.roboform.com/filling-test-all-fields";
 
 /**
  * Wait helper for async timing.
  */
 function wait(ms: number) {
     return new Promise(res => setTimeout(res, ms));
+}
+
+/**
+ * Helper to navigate to the test page.
+ */
+async function navigateToTestPage(client: Client) {
+    try {
+        console.log(`[Harness] Navigating to test page: ${TEST_PAGE_URL}`);
+        const navResult = await client.callTool({
+            name: "browser_navigate",
+            arguments: { url: TEST_PAGE_URL }
+        });
+        console.log("[Harness] Navigation result:");
+        console.dir(navResult, { depth: null, colors: true });
+    } catch (err) {
+        console.error("[Harness] Navigation failed:", err);
+    }
 }
 
 /**
@@ -73,7 +92,7 @@ async function runTest() {
 
         // --- Optional Interactive CLI Mode ---
         if (INTERACTIVE) {
-            console.log("[Harness] Interactive CLI mode enabled. Type 'tool <name>' to call a tool, or 'exit' to quit.");
+            console.log("[Harness] Interactive CLI mode enabled. Type 'tool <name>' to call a tool, 'navigate' to go to the test page, or 'exit' to quit.");
             const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
             rl.on("line", async (line) => {
                 const [cmd, ...args] = line.trim().split(" ");
@@ -86,12 +105,16 @@ async function runTest() {
                     } catch (err) {
                         console.error(`[Harness] Tool call failed:`, err);
                     }
+                } else if (cmd === "navigate") {
+                    await navigateToTestPage(client!);
                 } else {
-                    console.log("[Harness] Unknown command. Use 'tool <name>' or 'exit'.");
+                    console.log("[Harness] Unknown command. Use 'tool <name>', 'navigate', or 'exit'.");
                 }
             });
         }
 
+        let hasNavigated = false;
+        let successfullyListedTabs = false;
         // --- Persistent async loop for periodic command sending and status logging ---
         while (running) {
             const now = Date.now();
@@ -109,6 +132,18 @@ async function runTest() {
                 console.log(`[Harness] Received result:`);
                 console.dir(result, { depth: null, colors: true });
                 console.log(`[Harness] Round-trip: ${roundTrip.toFixed(3)}s, Elapsed: ${totalElapsed.toFixed(3)}s, Msg count: ${messageCount}, Rate: ${rate.toFixed(2)} msg/s`);
+                // Set sucessfullyListedTabs only if no error in result
+                successfullyListedTabs = !(result && result.error);
+                // Navigate after first successful tabs retrieval, only once, and only after a successful tabs call
+                if (successfullyListedTabs && NAVIGATE_ON_START && !hasNavigated ) {
+                    // get the currently active tab and navigate to the test page
+                    const activeTabResult = await client.callTool({ name: "browser_get_active_tab_for_automation", arguments: {} });
+                    console.log("[Harness] Active tab info:");
+                    console.dir(activeTabResult, { depth: null, colors: true });
+                    console.log(`[Harness] Successfully listed tabs, navigating to test page: ${TEST_PAGE_URL}`);
+                    await navigateToTestPage(client);
+                    hasNavigated = true;
+                }
             } catch (err) {
                 console.error(`[Harness] MCP call failed:`, err);
             }
