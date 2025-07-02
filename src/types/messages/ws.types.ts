@@ -3,6 +3,9 @@ import type { Locator } from "./mcp/locator.js";
 
 /**
  * Describes the rich information returned for each open tab.
+ * IMPORTANT: This type MUST always match the TabInfoSchema in '../mcp/tool.schemas.ts'.
+ * If you change the fields here, you must also update TabInfoSchema in tool.schemas.ts.
+ * Likewise, if you change TabInfoSchema, update this type to match.
  */
 export type TabInfo = {
   tabId: number;

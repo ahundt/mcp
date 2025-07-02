@@ -1,11 +1,11 @@
 // mcp/src/tools/snapshot.ts
 import zodToJsonSchema from "zod-to-json-schema";
 import {
+    SnapshotTool,
     ClickTool,
     DragTool,
     HoverTool,
     SelectOptionTool,
-    SnapshotTool,
     TypeTool,
 } from "../types/mcp/tool.schemas.js";
 import type { Context } from "@/context.js";

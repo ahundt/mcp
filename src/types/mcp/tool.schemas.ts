@@ -2,6 +2,74 @@
 import { z } from "zod";
 import { LocatorSchema } from "./locator.schemas.js";
 
+/**
+ * TabInfo schema for use in all tab-related tool schemas.
+ * IMPORTANT: This schema MUST always match the TabInfo type in '../messages/ws.types.ts'.
+ * If you change the fields here, you must also update the TabInfo type definition in ws.types.ts.
+ * Likewise, if you change TabInfo in ws.types.ts, update this schema to match.
+ */
+export const TabInfoSchema = z.object({
+    tabId: z.number(),
+    title: z.string(),
+    url: z.string(),
+    isActiveForAutomation: z.boolean(),
+    isActiveInWindow: z.boolean(),
+    isAudible: z.boolean(),
+    isPinned: z.boolean(),
+});
+
+// Shared result schema for browser_get_active_tab_for_automation and browser_snapshot.activeTab
+export const GetActiveTabForAutomationTool = z.object({
+    name: z.literal("browser_get_active_tab_for_automation"),
+    description: z.literal(
+        "Returns the TabInfo for the current automation tab (set by browser_set_active_tab), or defaults to the frontmost tab in the current window if none is set. Used to determine which tab will be targeted by automation commands. Always included in browser_snapshot responses as 'activeTab'."
+    ),
+    arguments: z.object({}),
+    result: z.object({
+        success: z.boolean(),
+        tab: TabInfoSchema.optional(),
+        error: z.string().optional(),
+    }),
+});
+
+export const SnapshotTool = z.object({
+    name: z.literal("browser_snapshot"),
+    description: z.literal("Captures the current state of the web browser page's accessibility tree. LOCATOR CRITICAL FIRST STEP: Call this to get context before using locators. The response always includes 'activeTab', which is the result of browser_get_active_tab_for_automation."),
+    arguments: z.object({}),
+    result: z.object({
+        activeTab: z.object({
+            success: z.boolean(),
+            tab: TabInfoSchema.optional(),
+            error: z.string().optional(),
+        }).describe("The current automation tab info, as returned by browser_get_active_tab_for_automation."),
+        snapshot: z.any().describe("The accessibility tree or page state as captured by the extension."),
+    }),
+});
+
+export const ListTabsTool = z.object({
+  name: z.literal("browser_list_tabs"),
+  description: z.literal(
+    "Lists all open, automatable (http/https) tabs. Provides IDs needed for `browser_set_active_tab` as well as contextual information like title, URL, and state (active, audible, pinned). This should be the first step in any workflow that needs to select a specific tab."
+  ),
+  arguments: z.object({}),
+  result: z.object({
+    success: z.boolean(),
+    tabs: z.array(TabInfoSchema),
+    error: z.string().optional(),
+  }),
+});
+
+export const SetActiveTabTool = z.object({
+  name: z.literal("browser_set_active_tab"),
+  description: z.literal(
+    "Sets a specific tab as the target for all subsequent automation commands. Must be called after `browser_list_tabs` and before actions like `click` or `type` can be used on a specific tab."
+  ),
+  arguments: z.object({
+    tabId: z.number().describe("The ID of the tab to activate, obtained from the `browser_list_tabs` tool."),
+    focus: z.boolean().optional().default(true).describe("If true (default), the tab and its window will be brought to the foreground. Set to false to target a tab for potential background actions without disturbing the user."),
+  }),
+});
+
 export const ClickTool = z.object({
   name: z.literal("browser_click"),
   description: z.literal("Clicks an element. This is the primary tool for interacting with buttons, links, and other clickable elements."),
@@ -12,7 +80,7 @@ export const ClickTool = z.object({
 
 export const TypeTool = z.object({
   name: z.literal("browser_type"),
-  description: z.literal("Types text into an input field. This tool correctly simulates user input to work with modern web frameworks."),
+  description: z.literal("Types text into an input field. This tool correctly simulates user input to work with modern web frameworks. This is pre"),
   arguments: z.object({
     locator: LocatorSchema.describe("The locator identifying the text input or textarea. Recommendation: Use the 'label' strategy."),
     text: z.string().describe("The text to type into the element."),
@@ -54,12 +122,6 @@ export const PressKeyTool = z.object({
     }),
 });
 
-export const SnapshotTool = z.object({
-    name: z.literal("browser_snapshot"),
-    description: z.literal("Captures the current state of the page's accessibility tree. CRITICAL FIRST STEP: Call this to get context before using locators."),
-    arguments: z.object({}),
-});
-
 export const NavigateTool = z.object({
     name: z.literal("browser_navigate"),
     description: z.literal("Navigates the current browser tab to a new URL."),
@@ -98,23 +160,4 @@ export const ScreenshotTool = z.object({
     name: z.literal("browser_screenshot"),
     description: z.literal("Takes a screenshot of the current viewport, useful for debugging or visual verification."),
     arguments: z.object({}),
-});
-
-export const ListTabsTool = z.object({
-  name: z.literal("browser_list_tabs"),
-  description: z.literal(
-    "Lists all open, automatable (http/https) tabs. Provides IDs needed for `browser_set_active_tab` as well as contextual information like title, URL, and state (active, audible, pinned). This should be the first step in any workflow that needs to select a specific tab."
-  ),
-  arguments: z.object({}),
-});
-
-export const SetActiveTabTool = z.object({
-  name: z.literal("browser_set_active_tab"),
-  description: z.literal(
-    "Sets a specific tab as the target for all subsequent automation commands. Must be called after `browser_list_tabs` and before actions like `click` or `type` can be used on a specific tab."
-  ),
-  arguments: z.object({
-    tabId: z.number().describe("The ID of the tab to activate, obtained from the `browser_list_tabs` tool."),
-    focus: z.boolean().optional().default(true).describe("If true (default), the tab and its window will be brought to the foreground. Set to false to target a tab for potential background actions without disturbing the user."),
-  }),
 });

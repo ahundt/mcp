@@ -174,6 +174,7 @@ async function onSocketMessage(event: MessageEvent) {
         return;
     }
     const { msgId, type, payload } = request;
+    console.log(`[MCP Background] Handling message type: ${type}, payload:`, payload);
     let responsePayload: any;
     try {
         switch (type) {
@@ -182,8 +183,12 @@ async function onSocketMessage(event: MessageEvent) {
                 responsePayload = await handleListTabs();
                 break;
             case 'browser_set_active_tab':
-                console.log("[MCP Background] Routing to handleSetActiveTab");
+                console.log(`[MCP Background] Routing to handleSetActiveTab with tabId: ${payload?.tabId}, focus: ${payload?.focus}`);
                 responsePayload = await handleSetActiveTab(payload.tabId, payload.focus);
+                break;
+            case 'browser_get_active_tab_for_automation':
+                console.log('[MCP Background] Routing to handleGetActiveTabForAutomation');
+                responsePayload = await handleGetActiveTabForAutomation();
                 break;
             case 'browser_navigate':
             case 'browser_go_back':
@@ -191,8 +196,13 @@ async function onSocketMessage(event: MessageEvent) {
                 console.log(`[MCP Background] Routing to handleNavigation with type: ${type}`);
                 responsePayload = await handleNavigation(type, payload);
                 break;
+            case 'browser_snapshot': {
+                responsePayload = await handleBrowserSnapshot(payload);
+                break;
+            }
             default:
                 if (!activeTabId) {
+                    console.warn(`[MCP Background] No activeTabId set. Cannot handle action: ${type}`);
                     throw new Error(`Action '${type}' requires an active tab. Use 'browser_list_tabs' then 'browser_set_active_tab' to select one.`);
                 }
                 // Forward DOM action to content script in the active tab
@@ -257,35 +267,94 @@ async function handleListTabs(): Promise<{ success: boolean; tabs: TabInfo[]; er
  * Optionally focuses the tab and its window.
  */
 async function handleSetActiveTab(tabId: number, focus: boolean): Promise<{ success: boolean; error?: SetActiveTabError }> {
+    console.log(`[MCP Background] handleSetActiveTab called with tabId: ${tabId}, focus: ${focus}`);
     try {
         const tab = await promiseChrome<chrome.tabs.Tab>((resolve, reject) => chrome.tabs.get(tabId, resolve));
         if (!tab || !tab.id) {
+            // Defensive: Tab may have closed between list and set
+            console.warn(`[MCP Background] Tab with ID ${tabId} does not exist.`);
             return { success: false, error: { code: 'TAB_NOT_FOUND', message: `Tab with ID ${tabId} does not exist.` } };
         }
-        // Clear badge from previous active tab
+        // Clear badge from previous active tab, if any
         if (activeTabId && activeTabId !== tab.id) {
             await promiseChrome<void>((resolve, reject) => chrome.action.setBadgeText({ text: "", tabId: activeTabId! }, resolve));
         }
+        // Set new active tab
         activeTabId = tab.id;
-        console.log(`[MCP Background] Active automation tab set to: ${tabId}`);
-        // Set badge and color for new active tab
+        // Visual feedback: badge and color
         await promiseChrome<void>((resolve, reject) => chrome.action.setBadgeText({ text: "ON", tabId: activeTabId! }, resolve));
         await promiseChrome<void>((resolve, reject) => chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' }, resolve));
-        // Optionally focus the tab and window
+        // Optionally focus the tab and its window for user clarity
         if (focus) {
             await promiseChrome<chrome.windows.Window>((resolve, reject) => chrome.windows.update(tab.windowId!, { focused: true }, resolve));
             await promiseChrome<chrome.tabs.Tab | undefined>((resolve, reject) => chrome.tabs.update(tab.id!, { active: true }, resolve));
         }
+        console.log(`[MCP Background] handleSetActiveTab succeeded for tabId: ${tabId}`);
         return { success: true };
     } catch (e: any) {
+        // Robust error handling: always return a protocol-compliant error envelope
         console.error("[MCP Background] Error in handleSetActiveTab:", e);
         return { success: false, error: { code: 'CHROME_API_ERROR', message: e.message } };
     }
 }
 
 /**
+ * Returns the TabInfo for the current automation tab (activeTabId),
+ * or defaults to the frontmost tab in the current window if none is set.
+ * Used by browser_get_active_tab_for_automation and incorporated into browser_snapshot.
+ *
+ * Best practices:
+ * - Always returns a protocol envelope: { success, tab?, error? }
+ * - Defensive: Handles missing/closed tabs gracefully.
+ * - DRY: Uses the same TabInfo shape as handleListTabs.
+ * - Clear logging for diagnostics.
+ */
+async function handleGetActiveTabForAutomation(): Promise<{ success: boolean; tab?: TabInfo; error?: string }> {
+    try {
+        let tab: chrome.tabs.Tab | undefined;
+        if (activeTabId) {
+            // Try to get the current automation tab
+            tab = await promiseChrome<chrome.tabs.Tab>((resolve, reject) => chrome.tabs.get(activeTabId!, resolve));
+        } else {
+            // Fallback: get the frontmost tab in the current window
+            const activeTabs = await promiseChrome<chrome.tabs.Tab[]>((resolve, reject) =>
+                chrome.tabs.query({ active: true, currentWindow: true }, resolve)
+            );
+            tab = activeTabs.length > 0 ? activeTabs[0] : undefined;
+        }
+        if (!tab || !tab.id) {
+            // Defensive: No tab available
+            return { success: false, error: 'No active tab available for automation.' };
+        }
+        // Construct TabInfo (keep in sync with TabInfoSchema/type)
+        const tabInfo: TabInfo = {
+            tabId: tab.id!,
+            title: tab.title || 'Untitled',
+            url: tab.url || 'no-url',
+            isActiveForAutomation: tab.id === activeTabId,
+            isActiveInWindow: tab.active,
+            isAudible: tab.audible ?? false,
+            isPinned: tab.pinned,
+        };
+        return { success: true, tab: tabInfo };
+    } catch (e: any) {
+        // Robust error handling
+        console.error('[MCP Background] Error in handleGetActiveTabForAutomation:', e);
+        return { success: false, error: e.message };
+    }
+}
+
+/**
  * Handles browser-level navigation commands (navigate, go back, go forward).
- * Returns success or error for the navigation attempt.
+ *
+ * Best practices:
+ * - Requires an active automation tab (activeTabId).
+ * - Always returns a protocol envelope: { success, error? }
+ * - Logs all actions and errors for diagnostics.
+ * - Uses promiseChrome for robust Chrome API error handling.
+ *
+ * @param method - One of 'browser_navigate', 'browser_go_back', 'browser_go_forward'.
+ * @param params - Parameters for navigation (e.g., { url })
  */
 async function handleNavigation(
     method: 'browser_navigate' | 'browser_go_back' | 'browser_go_forward',
@@ -307,6 +376,49 @@ async function handleNavigation(
     } catch (e: any) {
         console.error(`[MCP Background] Error in handleNavigation (${method}):`, e);
         return { success: false, error: e.message };
+    }
+}
+
+/**
+ * Handles the 'browser_snapshot' protocol command.
+ * This function is responsible for:
+ *   - Determining the correct tab to snapshot (active automation tab, or frontmost tab if none is set)
+ *   - Sending the snapshot request to the content script in that tab
+ *   - Returning a protocol-compliant result envelope, including the tab info used
+ *   - Providing robust error handling and clear logging for maintainability
+ *
+ * Best Practices:
+ *   - Always prefer the automation tab (activeTabId), but gracefully fall back to the frontmost tab
+ *   - Always include the result of handleGetActiveTabForAutomation in the response for traceability
+ *   - Never throw unhandled errors; always return a protocol-compliant error envelope
+ *   - Keep this function pure and side-effect free except for messaging
+ *   - Log all key decisions and errors for debugging and maintainability
+ *
+ * @param payload - The payload for the snapshot command (may be empty)
+ * @returns A protocol result envelope containing the snapshot and tab info, or an error
+ */
+async function handleBrowserSnapshot(payload: any): Promise<any> {
+    // Get the tab to use for snapshot: prefer automation tab, else frontmost tab
+    let tabIdToUse = activeTabId;
+    const tabInfoResult = await handleGetActiveTabForAutomation();
+    if (!tabIdToUse && tabInfoResult.success && tabInfoResult.tab) {
+        tabIdToUse = tabInfoResult.tab.tabId;
+        console.log(`[MCP Background] handleBrowserSnapshot: No activeTabId set, using frontmost tabId: ${tabIdToUse}`);
+    }
+    if (!tabIdToUse) {
+        const errorMsg = 'No active tab available for snapshot.';
+        console.warn(`[MCP Background] handleBrowserSnapshot: ${errorMsg}`);
+        return { success: false, error: { code: 'NO_ACTIVE_TAB', message: errorMsg }, activeTab: tabInfoResult };
+    }
+    try {
+        // Send the snapshot request to the content script in the chosen tab
+        const snapshot = await chrome.tabs.sendMessage(tabIdToUse, { type: 'browser_snapshot', payload });
+        // Always include the tab info used for the snapshot in the response
+        return { ...snapshot, activeTab: tabInfoResult };
+    } catch (e: any) {
+        // Robust error envelope for protocol compliance
+        console.error('[MCP Background] handleBrowserSnapshot error:', e);
+        return { success: false, error: { code: 'SNAPSHOT_ERROR', message: e.message }, activeTab: tabInfoResult };
     }
 }
 
