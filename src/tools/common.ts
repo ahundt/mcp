@@ -8,11 +8,15 @@ import {
   GoForwardTool,
   PressKeyTool,
   WaitTool,
+  GetActiveTabForAutomationTool,
+  GetConsoleLogsTool,
+  ScreenshotTool,
 } from "@/types/mcp/tool.schemas.js";
 import type { TabInfo, SetActiveTabError } from "@/types/messages/ws.types.js";
 import type { Context } from "@/context.js";
 import { captureAriaSnapshot } from "@/utils/aria-snapshot.js";
 import type { Tool, ToolFactory, ToolResult } from "./tool.interface.js";
+import type { SocketMessageMap } from "@/types/messages/ws.types.js";
 
 /**
  * TOOL DESIGN PATTERN (FACTORY, NOT INHERITANCE)
@@ -65,6 +69,15 @@ export function handleBrowserResponse(actionName: string, locatorText: string, r
   return null;
 }
 
+// --- Strongly type makeCommonTool for protocol compliance ---
+type ActionName = keyof SocketMessageMap;
+
+type ToolArgType<K extends ActionName> = SocketMessageMap[K] extends { payload: infer P } ? P : never;
+
+type ToolFactoryTyped<K extends ActionName> = (
+  snapshot?: boolean
+) => Tool;
+
 /**
  * Factory: makeCommonTool
  * ----------------------
@@ -99,11 +112,11 @@ export function handleBrowserResponse(actionName: string, locatorText: string, r
  * @param snapshot If true, returns a snapshot on success.
  * @returns A Tool object with shared logic.
  */
-export function makeCommonTool<T>(
-  actionName: string,
+export function makeCommonTool<K extends ActionName>(
+  actionName: K,
   zodSchema: any,
-  buildPayload: (params: T) => any,
-  formatSuccess: (params: T) => string,
+  buildPayload: (params: ToolArgType<K>) => ToolArgType<K>,
+  formatSuccess: (params: ToolArgType<K>) => string,
   snapshot?: boolean
 ): Tool {
   return {
@@ -114,11 +127,12 @@ export function makeCommonTool<T>(
     },
     handle: async (context, params) => {
       // Validate arguments using the provided Zod schema
-      const validated = zodSchema.shape.arguments.parse(params);
+      const validated = zodSchema.shape.arguments.parse(params) as ToolArgType<K>;
       // Build the payload for the browser extension
-      const response = await context.sendSocketMessage(actionName, buildPayload(validated));
+      const payload = buildPayload(validated);
+      const response = await context.sendSocketMessage(actionName, payload);
       // Handle errors using the shared error handler
-      const errorResult = handleBrowserResponse(actionName, JSON.stringify(validated), response);
+      const errorResult = handleBrowserResponse(actionName as string, JSON.stringify(validated), response);
       if (errorResult) return errorResult;
       // Optionally return a snapshot if requested
       if (snapshot) {
@@ -131,13 +145,27 @@ export function makeCommonTool<T>(
 }
 
 /**
+ * Tool: getActiveTabForAutomation
+ * Returns the TabInfo for the current automation tab (set by browser_set_active_tab),
+ * or defaults to the frontmost tab in the current window if none is set.
+ * Used to determine which tab will be targeted by automation commands.
+ * Always included in browser_snapshot responses as 'activeTab'.
+ */
+export const getActiveTabForAutomation: Tool = makeCommonTool(
+  "browser_get_active_tab_for_automation" as keyof SocketMessageMap,
+  GetActiveTabForAutomationTool,
+  () => ({}),
+  () => "Returned active automation tab info"
+);
+
+/**
  * Sets the active browser tab for automation. Optionally focuses the tab and can return a snapshot.
  * Arguments: tabId (string), focus (boolean)
  */
-export const setActiveTab: ToolFactory = (snapshot) => makeCommonTool<{ tabId: string, focus: boolean }>(
+export const setActiveTab: ToolFactory = (snapshot) => makeCommonTool(
   "browser_set_active_tab",
   SetActiveTabTool,
-  ({ tabId, focus }) => ({ tabId, focus }),
+  ({ tabId, focus }) => ({ tabId: Number(tabId), focus }),
   ({ tabId }) => `Active automation tab set to ${tabId}.`,
   snapshot
 );
@@ -146,7 +174,7 @@ export const setActiveTab: ToolFactory = (snapshot) => makeCommonTool<{ tabId: s
  * Navigates the active browser tab to a specified URL. Optionally returns a snapshot after navigation.
  * Arguments: url (string)
  */
-export const navigate: ToolFactory = (snapshot) => makeCommonTool<{ url: string }>(
+export const navigate: ToolFactory = (snapshot) => makeCommonTool(
   "browser_navigate",
   NavigateTool,
   ({ url }) => ({ url }),
@@ -158,7 +186,7 @@ export const navigate: ToolFactory = (snapshot) => makeCommonTool<{ url: string 
  * Navigates the active browser tab back in history. Optionally returns a snapshot after navigation.
  * No arguments.
  */
-export const goBack: ToolFactory = (snapshot) => makeCommonTool<{}>(
+export const goBack: ToolFactory = (snapshot) => makeCommonTool(
   "browser_go_back",
   GoBackTool,
   () => ({}),
@@ -170,7 +198,7 @@ export const goBack: ToolFactory = (snapshot) => makeCommonTool<{}>(
  * Navigates the active browser tab forward in history. Optionally returns a snapshot after navigation.
  * No arguments.
  */
-export const goForward: ToolFactory = (snapshot) => makeCommonTool<{}>(
+export const goForward: ToolFactory = (snapshot) => makeCommonTool(
   "browser_go_forward",
   GoForwardTool,
   () => ({}),
@@ -182,7 +210,7 @@ export const goForward: ToolFactory = (snapshot) => makeCommonTool<{}>(
  * Waits for a specified number of seconds in the browser automation flow.
  * Arguments: time (number)
  */
-export const wait: Tool = makeCommonTool<{ time: number }>(
+export const wait: Tool = makeCommonTool(
   "browser_wait",
   WaitTool,
   ({ time }) => ({ time }),
@@ -193,9 +221,55 @@ export const wait: Tool = makeCommonTool<{ time: number }>(
  * Simulates a key press in the active browser tab.
  * Arguments: key (string)
  */
-export const pressKey: Tool = makeCommonTool<{ key: string }>(
+export const pressKey: Tool = makeCommonTool(
   "browser_press_key",
   PressKeyTool,
   ({ key }) => ({ key }),
   ({ key }) => `Pressed key ${key}`
 );
+
+/**
+ * Retrieves all console logs from the browser's developer console for debugging.
+ * Formats logs as a readable string for human/AI consumption.
+ */
+export const getConsoleLogs: Tool = {
+  schema: {
+    name: GetConsoleLogsTool.shape.name.value,
+    description: GetConsoleLogsTool.shape.description.value,
+    inputSchema: zodToJsonSchema(GetConsoleLogsTool.shape.arguments),
+  },
+  handle: async (context: Context, _params: unknown) => {
+    const logs = await context.sendSocketMessage("browser_get_console_logs", {});
+    if (!logs || logs.length === 0) {
+      return {
+        content: [{ type: "text", text: "No console logs found." }],
+      };
+    }
+    const text = logs.map((log: any) => typeof log === 'string' ? log : JSON.stringify(log)).join("\n");
+    return {
+      content: [{ type: "text", text: `Console Logs:\n${text}` }],
+    };
+  },
+};
+
+/**
+ * Takes a screenshot of the current viewport, useful for debugging or visual verification.
+ * Returns the image as a PNG for downstream consumers.
+ */
+export const screenshot: Tool = {
+  schema: {
+    name: ScreenshotTool.shape.name.value,
+    description: ScreenshotTool.shape.description.value,
+    inputSchema: zodToJsonSchema(ScreenshotTool.shape.arguments),
+  },
+  handle: async (context: Context, _params: unknown) => {
+    const screenshotData = await context.sendSocketMessage("browser_screenshot", {});
+    return {
+      content: [{
+        type: "image",
+        data: screenshotData,
+        mimeType: "image/png",
+      }],
+    };
+  },
+};

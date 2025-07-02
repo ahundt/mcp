@@ -13,6 +13,7 @@ import { captureAriaSnapshot } from "@/utils/aria-snapshot.js";
 import { stringifyLocator } from "../utils/locator.stringifier.js";
 import { makeCommonTool } from "./common.js";
 import type { Tool } from "./tool.js";
+import type { SocketMessageMap } from "@/types/messages/ws.types.js";
 
 /**
  * TOOL DESIGN PATTERN (FACTORY, NOT INHERITANCE)
@@ -46,7 +47,7 @@ export const snapshot: Tool = {
  * Clicks an element in the active browser tab, identified by a locator. Returns a snapshot after the click.
  * Arguments: locator (any)
  */
-export const click: Tool = makeCommonTool<{ locator: any }>(
+export const click: Tool = makeCommonTool(
   "browser_click",
   ClickTool,
   ({ locator }) => ({ locator }),
@@ -58,7 +59,7 @@ export const click: Tool = makeCommonTool<{ locator: any }>(
  * Drags an element from a start locator to an end locator in the active browser tab. Returns a snapshot after the drag.
  * Arguments: startElement (any), endElement (any)
  */
-export const drag: Tool = makeCommonTool<{ startElement: any, endElement: any }>(
+export const drag: Tool = makeCommonTool(
   "browser_drag",
   DragTool,
   ({ startElement, endElement }) => ({ startElement, endElement }),
@@ -70,7 +71,7 @@ export const drag: Tool = makeCommonTool<{ startElement: any, endElement: any }>
  * Hovers over an element in the active browser tab, identified by a locator. Returns a snapshot after the hover.
  * Arguments: locator (any)
  */
-export const hover: Tool = makeCommonTool<{ locator: any }>(
+export const hover: Tool = makeCommonTool(
   "browser_hover",
   HoverTool,
   ({ locator }) => ({ locator }),
@@ -82,7 +83,7 @@ export const hover: Tool = makeCommonTool<{ locator: any }>(
  * Types text into an element in the active browser tab, identified by a locator. Optionally submits after typing. Returns a snapshot after typing.
  * Arguments: locator (any), text (string), submit? (boolean)
  */
-export const type: Tool = makeCommonTool<{ locator: any, text: string, submit?: boolean }>(
+export const type: Tool = makeCommonTool(
   "browser_type",
   TypeTool,
   ({ locator, text, submit }) => ({ locator, text, submit }),
@@ -94,7 +95,7 @@ export const type: Tool = makeCommonTool<{ locator: any, text: string, submit?: 
  * Selects an option in a dropdown or select element in the active browser tab, identified by a locator. Returns a snapshot after selection.
  * Arguments: locator (any), values (any)
  */
-export const selectOption: Tool = makeCommonTool<{ locator: any, values: any }>(
+export const selectOption: Tool = makeCommonTool(
   "browser_select_option",
   SelectOptionTool,
   ({ locator, values }) => ({ locator, values }),

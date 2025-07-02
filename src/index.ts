@@ -7,7 +7,6 @@ import { appConfig } from "@/config";
 import type { Resource } from "@/resources/resource";
 import { createServerWithTools } from "@/server";
 import * as common from "@/tools/common";
-import * as custom from "@/tools/custom";
 import * as snapshotTools from "@/tools/snapshot";
 import type { Tool } from "@/tools/tool";
 import packageJSON from "../package.json";
@@ -36,15 +35,16 @@ const allTools: Tool[] = [
     common.pressKey,
     common.listTabs,
     common.setActiveTab(true),
+    common.getActiveTabForAutomation,
 
     // Navigation tools (configured to return a snapshot)
     common.navigate(true),
     common.goBack(true),
     common.goForward(true),
 
-    // Custom utility tools
-    custom.getConsoleLogs,
-    custom.screenshot,
+    // Utility tools (formerly custom)
+    common.getConsoleLogs,
+    common.screenshot,
 ];
 
 const resources: Resource[] = [];
