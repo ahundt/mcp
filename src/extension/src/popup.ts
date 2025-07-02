@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
           console.error(chrome.runtime.lastError.message);
         } else {
           console.log(response.status);
-          window.close(); // Re-introducing window.close() as per user preference.
+          // window.close(); // Re-introducing window.close() as per user preference.
         }
       });
     });
