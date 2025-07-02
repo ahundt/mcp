@@ -37,8 +37,10 @@ function wait(ms: number) {
 
 /**
  * Helper to navigate to the test page.
+ * @param client - The MCP client instance
+ * @returns Promise<any> - The navigation result from the MCP tool
  */
-async function navigateToTestPage(client: Client) {
+async function navigateToTestPage(client: Client): Promise<any> {
     try {
         console.log(`[Harness] Navigating to test page: ${TEST_PAGE_URL}`);
         const navResult = await client.callTool({
@@ -47,8 +49,10 @@ async function navigateToTestPage(client: Client) {
         });
         console.log("[Harness] Navigation result:");
         console.dir(navResult, { depth: null, colors: true });
+        return navResult; // Explicitly return the result
     } catch (err) {
         console.error("[Harness] Navigation failed:", err);
+        return { error: err }; // Return error object instead of undefined
     }
 }
 
@@ -136,17 +140,20 @@ async function runTest() {
 
                 // -- Check if the result contains tabs and if any are active for automation --
 
-                // get the currently active tab and navigate to the test page
-                const activeTabResult = await client.callTool({ name: "browser_get_active_tab_for_automation", arguments: {} });
+                // -- Get active automation tab safely (may create new tab if needed) --
+                const activeTabResult = await client.callTool({
+                    name: "browser_get_active_tab_for_automation",
+                    arguments: { newWindow: 'on-no-automation-tab' } // Safe default: only create if needed
+                });
                 console.log("[Harness] Active tab info:");
                 console.dir(activeTabResult, { depth: null, colors: true });
 
-                 // Set sucessfullyListedTabs only if no error in result
-                successfullyListedTabs = !(result && result.error && activeTabResult && activeTabResult.error);
+                // Set sucessfullyListedTabs only if no error in result
+                successfullyListedTabs = !(result && result.isError) && !(activeTabResult && activeTabResult.isError);
 
-                // Navigate to the test page after first successful tabs retrieval, only once, and only after a successful tabs call
-                if (successfullyListedTabs && NAVIGATE_ON_START && !hasNavigated ) {
-                    console.log(`[Harness] Successfully listed tabs, navigating to test page: ${TEST_PAGE_URL}`);
+                // Navigate to the test page after ensuring we have a safe automation tab
+                if (successfullyListedTabs && NAVIGATE_ON_START && !hasNavigated) {
+                    console.log(`[Harness] Successfully ensured automation tab, navigating to test page: ${TEST_PAGE_URL}`);
                     const navigateResult = await navigateToTestPage(client);
                     // print the test page data
                     console.log("[Harness] Test page navigation result:");

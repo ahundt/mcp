@@ -13,20 +13,35 @@ import {
 import type { Context } from "@/context.js";
 import { captureAriaSnapshot } from "@/utils/aria-snapshot.js";
 import { stringifyLocator } from "../utils/locator.stringifier.js";
-import { makeCommonTool, makeToolFactory } from "./common.js";
+import { makeTool } from "./common.js";
 import type { SocketMessageMap } from "@/types/messages/ws.types.js";
 
 /**
- * TOOL DESIGN PATTERN (FACTORY, NOT INHERITANCE)
- * ------------------------------------------------
- * This file uses the makeCommonTool factory from common.ts to create browser automation tools
- * with shared logic for argument validation, error handling, and optional snapshotting.
+ * BROWSER AUTOMATION TOOLS - SNAPSHOT EDITION
+ * ============================================
  *
- * Each tool below is either:
- *   - Created via makeCommonTool (inherits shared logic via composition)
- *   - Custom (implements unique logic directly)
+ * This module provides browser automation tools that integrate with ARIA snapshots for
+ * improved accessibility and observability. All tools use the new `makeTool` factory
+ * from common.ts with explicit snapshot configuration objects to control snapshot behavior.
  *
- * See common.ts for full documentation of makeCommonTool usage and implementation.
+ * Design Pattern:
+ * - Schema-driven configuration using Zod schemas
+ * - Convention-over-configuration approach with `makeTool` factory
+ * - Explicit snapshot configuration with { enabled: boolean, defaultValue?: boolean }
+ * - Type-safe payloadTransform functions for WebSocket message formatting
+ *
+ * Snapshot Configuration:
+ * - { enabled: true, defaultValue: true }: Always capture snapshots by default
+ * - { enabled: true, defaultValue: false }: Snapshots available but disabled by default
+ * - { enabled: false }: No snapshot capability (returns Tool instead of ToolFactory)
+ *
+ * Tools included:
+ * - snapshot: Manual ARIA snapshot capture (Tool)
+ * - click: Click elements with locator (ToolFactory, snapshots enabled by default)
+ * - drag: Drag elements between locators (ToolFactory, snapshots enabled by default)
+ * - hover: Hover over elements (ToolFactory, snapshots available but disabled by default)
+ * - type: Type text into elements (ToolFactory, snapshots enabled by default)
+ * - selectOption: Select dropdown options (ToolFactory, snapshots enabled by default)
  */
 
 /**
@@ -48,58 +63,67 @@ export const snapshot: Tool = {
  * Clicks an element in the active browser tab, identified by a locator. Returns a snapshot after the click.
  * Arguments: locator (any)
  */
-export const click: ToolFactory = makeToolFactory(
-  ClickTool,
-  {
-    actionName: "browser_click",
-    successMessage: ({ locator }: any) => `Clicked element found via ${stringifyLocator(locator)}`,
-  }
-);
+export const click: ToolFactory = makeTool(ClickTool, {
+  snapshot: { enabled: true, defaultValue: true }, // Always capture snapshot after clicks
+  payloadTransform: ({ locator }: any) => ({
+    action: "browser_click",
+    locator,
+  }),
+  successMessage: ({ locator }: any) => `Clicked element found via ${stringifyLocator(locator)}`,
+});
 
 /**
  * Drags an element from a start locator to an end locator in the active browser tab. Returns a snapshot after the drag.
  * Arguments: startElement (any), endElement (any)
  */
-export const drag: ToolFactory = makeToolFactory(
-  DragTool,
-  {
-    actionName: "browser_drag",
-    successMessage: ({ startElement, endElement }: any) => `Dragged element from ${stringifyLocator(startElement)} to ${stringifyLocator(endElement)}`,
-  }
-);
+export const drag: ToolFactory = makeTool(DragTool, {
+  snapshot: { enabled: true, defaultValue: true }, // Always capture snapshot after drags
+  payloadTransform: ({ startElement, endElement }: any) => ({
+    action: "browser_drag",
+    startElement,
+    endElement,
+  }),
+  successMessage: ({ startElement, endElement }: any) => `Dragged element from ${stringifyLocator(startElement)} to ${stringifyLocator(endElement)}`,
+});
 
 /**
  * Hovers over an element in the active browser tab, identified by a locator. Returns a snapshot after the hover.
  * Arguments: locator (any)
  */
-export const hover: ToolFactory = makeToolFactory(
-  HoverTool,
-  {
-    actionName: "browser_hover",
-    successMessage: ({ locator }: any) => `Hovered over element found via ${stringifyLocator(locator)}`,
-  }
-);
+export const hover: ToolFactory = makeTool(HoverTool, {
+  snapshot: { enabled: true, defaultValue: false }, // Available but disabled by default - hovers are often temporary
+  payloadTransform: ({ locator }: any) => ({
+    action: "browser_hover",
+    locator,
+  }),
+  successMessage: ({ locator }: any) => `Hovered over element found via ${stringifyLocator(locator)}`,
+});
 
 /**
  * Types text into an element in the active browser tab, identified by a locator. Optionally submits after typing. Returns a snapshot after typing.
  * Arguments: locator (any), text (string), submit? (boolean)
  */
-export const type: ToolFactory = makeToolFactory(
-  TypeTool,
-  {
-    actionName: "browser_type",
-    successMessage: ({ locator, text }: any) => `Typed "${text}" into element found via ${stringifyLocator(locator)}`,
-  }
-);
+export const type: ToolFactory = makeTool(TypeTool, {
+  snapshot: { enabled: true, defaultValue: true }, // Always capture snapshot after typing
+  payloadTransform: ({ locator, text, submit }: any) => ({
+    action: "browser_type",
+    locator,
+    text,
+    ...(submit !== undefined && { submit }),
+  }),
+  successMessage: ({ locator, text }: any) => `Typed "${text}" into element found via ${stringifyLocator(locator)}`,
+});
 
 /**
  * Selects an option in a dropdown or select element in the active browser tab, identified by a locator. Returns a snapshot after selection.
  * Arguments: locator (any), values (any)
  */
-export const selectOption: ToolFactory = makeToolFactory(
-  SelectOptionTool,
-  {
-    actionName: "browser_select_option",
-    successMessage: ({ locator }: any) => `Selected option in element found via ${stringifyLocator(locator)}`,
-  }
-);
+export const selectOption: ToolFactory = makeTool(SelectOptionTool, {
+  snapshot: { enabled: true, defaultValue: true }, // Always capture snapshot after selections
+  payloadTransform: ({ locator, values }: any) => ({
+    action: "browser_select_option",
+    locator,
+    values,
+  }),
+  successMessage: ({ locator }: any) => `Selected option in element found via ${stringifyLocator(locator)}`,
+});

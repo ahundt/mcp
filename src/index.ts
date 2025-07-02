@@ -19,32 +19,32 @@ function setupExitWatchdog(server: Server) {
     });
 }
 
-// This list now correctly references all the tools from the updated files.
+// This list correctly references all tools from the updated factory system.
+// Tools now have intelligent defaults built-in, eliminating repetitive (true)/(false) calls.
+// Users can still override defaults by calling factories explicitly: toolFactory(false)
 
 const allTools: Tool[] = [
-    // Snapshot/Interaction tools (always with snapshot enabled)
+    // Snapshot/Interaction tools (using built-in defaults)
     snapshotTools.snapshot,
-    snapshotTools.click,
-    snapshotTools.hover,
-    snapshotTools.type,
-    snapshotTools.selectOption,
-    snapshotTools.drag,
+    snapshotTools.click(),          // Default: snapshots enabled (true)
+    snapshotTools.hover(),          // Default: snapshots disabled (false) - hovers are temporary
+    snapshotTools.type(),           // Default: snapshots enabled (true)
+    snapshotTools.selectOption(),   // Default: snapshots enabled (true)
+    snapshotTools.drag(),           // Default: snapshots enabled (true)
 
-    // Common tools
-    common.wait,
-    common.pressKey,
-    common.listTabs,
-    common.setActiveTab(true),
-    common.getActiveTabForAutomation,
+    // Navigation and automation tools (using built-in defaults)
+    common.setActiveTab(),          // Default: snapshots enabled (true)
+    common.navigate(),              // Default: snapshots enabled (true)
+    common.goBack(),                // Default: snapshots enabled (true)
+    common.goForward(),             // Default: snapshots enabled (true)
+    common.pressKey(),              // Default: snapshots disabled (false) - most key presses are minor
+    common.getActiveTabForAutomation(), // Default: snapshots disabled (false) - quick lookup
 
-    // Navigation tools (configured to return a snapshot)
-    common.navigate(true),
-    common.goBack(true),
-    common.goForward(true),
-
-    // Utility tools (formerly custom)
-    common.getConsoleLogs,
-    common.screenshot,
+    // Utility tools (no snapshot capability)
+    common.wait,                    // Simple Tool - no snapshots
+    common.listTabs,                // Simple Tool - no snapshots
+    common.getConsoleLogs,          // Simple Tool - no snapshots
+    common.screenshot,              // Simple Tool - no snapshots
 ];
 
 const resources: Resource[] = [];

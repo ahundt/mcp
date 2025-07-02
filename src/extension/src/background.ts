@@ -7,7 +7,8 @@ import { v4 as uuidv4 } from 'uuid';
 // ====================================================================================
 // PURPOSE:
 // This background script is the central nervous system of the browser extension. It
-// is the only component that communicates directly with the MCP server.
+// is the only component that communicates directly with the MCP server. It always
+// runs in the background of the browser, even when the popup UI is closed.
 //
 // CORE RESPONSIBILITIES:
 // 1. PROTOCOL-COMPATIBLE COMMUNICATION: It implements a message receiver compatible
@@ -187,8 +188,8 @@ async function onSocketMessage(event: MessageEvent) {
                 responsePayload = await handleSetActiveTab(payload.tabId, payload.focus);
                 break;
             case 'browser_get_active_tab_for_automation':
-                console.log('[MCP Background] Routing to handleGetActiveTabForAutomation');
-                responsePayload = await handleGetActiveTabForAutomation();
+                console.log(`[MCP Background] Routing to handleGetActiveTabForAutomation with newWindow: ${payload?.newWindow || 'on-no-automation-tab'}`);
+                responsePayload = await handleGetActiveTabForAutomation(payload?.newWindow);
                 break;
             case 'browser_navigate':
             case 'browser_go_back':
@@ -299,44 +300,97 @@ async function handleSetActiveTab(tabId: number, focus: boolean): Promise<{ succ
 }
 
 /**
- * Returns the TabInfo for the current automation tab (activeTabId),
- * or defaults to the frontmost tab in the current window if none is set.
- * Used by browser_get_active_tab_for_automation and incorporated into browser_snapshot.
+ * Returns the TabInfo for the current automation tab (activeTabId), with safe new tab creation.
+ *
+ * SAFETY FEATURES:
+ * - Never automatically converts user tabs to automation tabs
+ * - Only returns tabs explicitly marked as automation tabs (activeTabId)
+ * - Can create safe new tabs when no automation tab exists
+ *
+ * NEW WINDOW BEHAVIOR:
+ * - 'always': Always create a new automation tab
+ * - 'on-no-automation-tab': Create new tab only if no automation tab exists (DEFAULT, SAFEST)
+ * - 'never': Fail with clear error if no automation tab exists
  *
  * Best practices:
- * - Always returns a protocol envelope: { success, tab?, error? }
- * - Defensive: Handles missing/closed tabs gracefully.
- * - DRY: Uses the same TabInfo shape as handleListTabs.
- * - Clear logging for diagnostics.
+ * - Always returns a protocol envelope: { success, tab?, error?, wasNewTabCreated? }
+ * - Defensive: Handles missing/closed tabs gracefully
+ * - DRY: Uses the same TabInfo shape as handleListTabs
+ * - Clear logging for diagnostics and safety
+ *
+ * @param newWindow - Controls new window creation behavior
  */
-async function handleGetActiveTabForAutomation(): Promise<{ success: boolean; tab?: TabInfo; error?: string }> {
+async function handleGetActiveTabForAutomation(
+    newWindow: 'always' | 'on-no-automation-tab' | 'never' = 'on-no-automation-tab'
+): Promise<{ success: boolean; tab?: TabInfo; error?: string; wasNewTabCreated?: boolean }> {
+    console.log(`[MCP Background] handleGetActiveTabForAutomation called with newWindow: ${newWindow}`);
+
     try {
         let tab: chrome.tabs.Tab | undefined;
+        let wasNewTabCreated = false;
+
+        // Check if we have a valid automation tab
         if (activeTabId) {
-            // Try to get the current automation tab
-            tab = await promiseChrome<chrome.tabs.Tab>((resolve, reject) => chrome.tabs.get(activeTabId!, resolve));
-        } else {
-            // Fallback: get the frontmost tab in the current window
-            const activeTabs = await promiseChrome<chrome.tabs.Tab[]>((resolve, reject) =>
-                chrome.tabs.query({ active: true, currentWindow: true }, resolve)
-            );
-            tab = activeTabs.length > 0 ? activeTabs[0] : undefined;
+            try {
+                tab = await promiseChrome<chrome.tabs.Tab>((resolve, reject) => chrome.tabs.get(activeTabId!, resolve));
+                console.log(`[MCP Background] Found existing automation tab: ${activeTabId}`);
+            } catch (e) {
+                console.warn(`[MCP Background] Automation tab ${activeTabId} no longer exists, clearing activeTabId`);
+                activeTabId = null; // Clear invalid tab reference
+            }
         }
+
+        // Handle new tab creation based on policy
+        if (!tab && newWindow !== 'never') {
+            if (newWindow === 'always' || (newWindow === 'on-no-automation-tab' && !activeTabId)) {
+                console.log(`[MCP Background] Creating new automation tab (policy: ${newWindow})`);
+                try {
+                    // Create a safe automation tab with a neutral URL
+                    tab = await promiseChrome<chrome.tabs.Tab>((resolve, reject) =>
+                        chrome.tabs.create({
+                            url: 'about:blank',
+                            active: false // Don't disrupt user's current tab
+                        }, resolve)
+                    );
+
+                    if (tab && tab.id) {
+                        activeTabId = tab.id;
+                        wasNewTabCreated = true;
+                        console.log(`[MCP Background] Created new automation tab: ${activeTabId}`);
+
+                        // Set visual feedback for the new automation tab
+                        await promiseChrome<void>((resolve, reject) => chrome.action.setBadgeText({ text: "ON", tabId: activeTabId! }, resolve));
+                        await promiseChrome<void>((resolve, reject) => chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' }, resolve));
+                    }
+                } catch (e: any) {
+                    console.error('[MCP Background] Failed to create new automation tab:', e);
+                    return { success: false, error: `Failed to create new automation tab: ${e.message}` };
+                }
+            }
+        }
+
+        // Final validation
         if (!tab || !tab.id) {
-            // Defensive: No tab available
-            return { success: false, error: 'No active tab available for automation.' };
+            const errorMsg = newWindow === 'never'
+                ? 'No automation tab available and new tab creation is disabled (newWindow: never)'
+                : 'No automation tab available and failed to create new tab';
+            console.warn(`[MCP Background] ${errorMsg}`);
+            return { success: false, error: errorMsg };
         }
+
         // Construct TabInfo (keep in sync with TabInfoSchema/type)
         const tabInfo: TabInfo = {
             tabId: tab.id!,
             title: tab.title || 'Untitled',
-            url: tab.url || 'no-url',
-            isActiveForAutomation: tab.id === activeTabId,
+            url: tab.url || 'about:blank',
+            isActiveForAutomation: tab.id === activeTabId, // Only true for our automation tab
             isActiveInWindow: tab.active,
             isAudible: tab.audible ?? false,
             isPinned: tab.pinned,
         };
-        return { success: true, tab: tabInfo };
+
+        console.log(`[MCP Background] Returning automation tab info:`, tabInfo);
+        return { success: true, tab: tabInfo, wasNewTabCreated };
     } catch (e: any) {
         // Robust error handling
         console.error('[MCP Background] Error in handleGetActiveTabForAutomation:', e);
@@ -380,38 +434,45 @@ async function handleNavigation(
 }
 
 /**
- * Handles the 'browser_snapshot' protocol command.
+ * Handles the 'browser_snapshot' protocol command with safe automation tab handling.
  * This function is responsible for:
- *   - Determining the correct tab to snapshot (active automation tab, or frontmost tab if none is set)
+ *   - Determining the correct tab to snapshot (automation tab only, safe new tab creation)
  *   - Sending the snapshot request to the content script in that tab
  *   - Returning a protocol-compliant result envelope, including the tab info used
  *   - Providing robust error handling and clear logging for maintainability
  *
+ * SAFETY FEATURES:
+ *   - Only uses tabs explicitly marked for automation (activeTabId)
+ *   - Can safely create new automation tabs if none exist
+ *   - Never interferes with user's personal browsing tabs
+ *
  * Best Practices:
- *   - Always prefer the automation tab (activeTabId), but gracefully fall back to the frontmost tab
  *   - Always include the result of handleGetActiveTabForAutomation in the response for traceability
  *   - Never throw unhandled errors; always return a protocol-compliant error envelope
  *   - Keep this function pure and side-effect free except for messaging
  *   - Log all key decisions and errors for debugging and maintainability
  *
- * @param payload - The payload for the snapshot command (may be empty)
+ * @param payload - The payload for the snapshot command (may include newWindow parameter)
  * @returns A protocol result envelope containing the snapshot and tab info, or an error
  */
 async function handleBrowserSnapshot(payload: any): Promise<any> {
-    // Get the tab to use for snapshot: prefer automation tab, else frontmost tab
-    let tabIdToUse = activeTabId;
-    const tabInfoResult = await handleGetActiveTabForAutomation();
-    if (!tabIdToUse && tabInfoResult.success && tabInfoResult.tab) {
-        tabIdToUse = tabInfoResult.tab.tabId;
-        console.log(`[MCP Background] handleBrowserSnapshot: No activeTabId set, using frontmost tabId: ${tabIdToUse}`);
-    }
-    if (!tabIdToUse) {
-        const errorMsg = 'No active tab available for snapshot.';
+    // Use safe tab resolution with potential new tab creation
+    const newWindow = payload?.newWindow || 'on-no-automation-tab'; // Safe default
+    console.log(`[MCP Background] handleBrowserSnapshot called with newWindow: ${newWindow}`);
+
+    const tabInfoResult = await handleGetActiveTabForAutomation(newWindow);
+
+    if (!tabInfoResult.success || !tabInfoResult.tab) {
+        const errorMsg = tabInfoResult.error || 'No automation tab available for snapshot';
         console.warn(`[MCP Background] handleBrowserSnapshot: ${errorMsg}`);
-        return { success: false, error: { code: 'NO_ACTIVE_TAB', message: errorMsg }, activeTab: tabInfoResult };
+        return { success: false, error: { code: 'NO_AUTOMATION_TAB', message: errorMsg }, activeTab: tabInfoResult };
     }
+
+    const tabIdToUse = tabInfoResult.tab.tabId;
+    console.log(`[MCP Background] handleBrowserSnapshot: Using automation tabId: ${tabIdToUse}${tabInfoResult.wasNewTabCreated ? ' (newly created)' : ''}`);
+
     try {
-        // Send the snapshot request to the content script in the chosen tab
+        // Send the snapshot request to the content script in the automation tab
         const snapshot = await chrome.tabs.sendMessage(tabIdToUse, { type: 'browser_snapshot', payload });
         // Always include the tab info used for the snapshot in the response
         return { ...snapshot, activeTab: tabInfoResult };

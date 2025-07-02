@@ -33,6 +33,9 @@ export const TextContentSchema = z.object({
 });
 
 export const JsonContentSchema = z.object({
+  // WARNING: MCP protocol, or at least parts of it
+  // does not support JSON content directly. Contents
+  // are sent as text, not JSON objects.
   type: z.literal("json"),
   data: z.any(),
 });
@@ -43,7 +46,7 @@ export const ImageContentSchema = z.object({
   mimeType: z.string(),
 });
 
-export const ContentSchema = z.union([TextContentSchema, JsonContentSchema, ImageContentSchema]);
+export const ContentSchema = z.union([TextContentSchema, ImageContentSchema]);
 
 // ===== TOOL INTERFACE SCHEMAS =====
 export const ToolSchemaZod = z.object({
@@ -71,24 +74,180 @@ export type Tool = {
 
 export type ToolFactory = (snapshot?: boolean) => Tool;
 
-// ===== EXTENSION INTERFACE FOR CUSTOMIZATION =====
-export interface ToolExtensions<T = any> {
-  actionName?: string;
-  payloadBuilder?: (params: T) => any;
+// ===== NEW HYBRID CONVENTION-CONFIGURATION INTERFACE =====
+
+/**
+ * TOOL CONFIGURATION GUIDE
+ * =========================
+ *
+ * This interface allows you to configure tool behavior while maintaining intelligent
+ * defaults through conventions. Here's how each configuration option works:
+ *
+ * 1. SNAPSHOT CONFIGURATION:
+ *    ----------------------
+ *    Controls whether tools capture page snapshots after their actions:
+ *
+ *    • `snapshot: false` → Returns Tool (no snapshot capability)
+ *      Example: Utility tools like wait, screenshot that don't need snapshots
+ *
+ *    • `snapshot: true` → Returns ToolFactory, defaults to capturing snapshots
+ *      Example: Tools that always benefit from showing results
+ *
+ *    • `snapshot: 'auto'` → Uses intelligent pattern detection
+ *      Interactive tools (click, navigate) → ToolFactory with snapshots
+ *      Utility tools (wait, console) → Tool without snapshots
+ *
+ *    • Omitted → Defaults to 'auto' behavior
+ *
+ * 2. PAYLOAD TRANSFORMATION:
+ *    ----------------------
+ *    Customizes how tool arguments are sent to the browser extension:
+ *
+ *    • Default: Zod-validated parameters passed directly
+ *    • Custom: Transform before sending (e.g., type conversions)
+ *
+ *    Example:
+ *    ```typescript
+ *    payloadTransform: ({ tabId, focus }) => ({
+ *      tabId: Number(tabId), // Convert to number
+ *      focus
+ *    })
+ *    ```
+ *
+ * 3. SUCCESS MESSAGES:
+ *    -----------------
+ *    Controls user feedback for successful tool execution:
+ *
+ *    • Custom function: Dynamic messages with parameter data
+ *    • Omitted: Auto-generated message like "browser_click completed successfully"
+ *    • Schema result: If schema defines result type, returns structured JSON
+ *
+ *    Example:
+ *    ```typescript
+ *    successMessage: ({ url }) => `Successfully navigated to ${url}`
+ *    ```
+ *
+ * 4. USAGE PATTERNS:
+ *    ---------------
+ *
+ *    Minimal configuration (pure conventions):
+ *    ```typescript
+ *    export const click = makeTool(ClickTool); // Auto-detects as interactive
+ *    ```
+ *
+ *    Explicit snapshot control:
+ *    ```typescript
+ *    export const wait = makeTool(WaitTool, { snapshot: false });
+ *    export const navigate = makeTool(NavigateTool, { snapshot: 'auto' });
+ *    ```
+ *
+ *    Full customization:
+ *    ```typescript
+ *    export const setActiveTab = makeTool(SetActiveTabTool, {
+ *      payloadTransform: ({ tabId, focus }) => ({ tabId: Number(tabId), focus }),
+ *      successMessage: ({ tabId }) => `Switched to tab ${tabId}`,
+ *      snapshot: 'auto'
+ *    });
+ *    ```
+ */
+
+/**
+ * Configuration interface for the new makeTool factory function.
+ * This interface provides a clean, type-safe way to customize tool behavior
+ * while maintaining sensible conventions and defaults.
+ *
+ * @template T - The type of the tool's validated arguments (inferred from schema)
+ */
+export interface ToolConfig<T = any> {
+  /**
+   * Optional function to transform validated arguments before sending to the browser extension.
+   *
+   * Purpose: Some tools need to transform their inputs (e.g., converting string IDs to numbers)
+   * before sending to the WebSocket. This function provides a type-safe way to do that.
+   *
+   * @param params - The validated arguments from the Zod schema
+   * @returns The transformed payload to send via WebSocket
+   *
+   * @example
+   * // Convert string tabId to number for browser extension
+   * payloadTransform: ({ tabId, focus }) => ({ tabId: Number(tabId), focus })
+   *
+   * @example
+   * // Pass arguments through unchanged (this is the default behavior)
+   * payloadTransform: (params) => params
+   */
+  payloadTransform?: (params: T) => any;
+
+  /**
+   * Optional function to generate a user-friendly success message.
+   *
+   * Purpose: Provides meaningful feedback to users about what action was performed.
+   * If not provided, a generic message like "browser_navigate completed successfully" is used.
+   *
+   * @param params - The validated arguments from the Zod schema
+   * @returns A human-readable success message
+   *
+   * @example
+   * // Personalized message with dynamic content
+   * successMessage: ({ url }) => `Successfully navigated to ${url}`
+   *
+   * @example
+   * // Simple static message
+   * successMessage: () => "Tab activation completed"
+   */
   successMessage?: (params: T) => string;
+
+  /**
+   * Controls whether this tool should support snapshot capture.
+   *
+   * - `{ enabled: true, defaultValue: true }`: Create factory, snapshots enabled by default
+   * - `{ enabled: true, defaultValue: false }`: Create factory, snapshots disabled by default
+   * - `{ enabled: false }`: Never support snapshots (return a simple Tool)
+   * - `true`: Shorthand for `{ enabled: true, defaultValue: true }`
+   * - `false`: Shorthand for `{ enabled: false }`
+   * - `'auto'`: Automatically determine based on tool name conventions
+   *
+   * Purpose: Interactive tools (click, type, navigate) typically benefit from
+   * capturing page snapshots after their action, while utility tools (wait, screenshot)
+   * do not need this capability.
+   *
+   * @default 'auto' - Infers based on tool name patterns
+   *
+   * @example
+   * // Full config object - snapshots available but disabled by default
+   * snapshot: { enabled: true, defaultValue: false }
+   *
+   * @example
+   * // Shorthand - force snapshot support with snapshots enabled by default
+   * snapshot: true
+   *
+   * @example
+   * // Shorthand - disable snapshots entirely
+   * snapshot: false
+   *
+   * @example
+   * // Let the system decide (recommended for most cases)
+   * snapshot: 'auto' // or omit entirely
+   */
+  snapshot?: { enabled: boolean; defaultValue?: boolean } | boolean | 'auto';
 }
 
 // Shared result schema for browser_get_active_tab_for_automation and browser_snapshot.activeTab
 export const GetActiveTabForAutomationTool = z.object({
     name: z.literal("browser_get_active_tab_for_automation"),
     description: z.literal(
-        "Returns the TabInfo for the current automation tab (set by browser_set_active_tab), or defaults to the frontmost tab in the current window if none is set. Used to determine which tab will be targeted by automation commands. Always included in browser_snapshot responses as 'activeTab'."
+        "Returns the TabInfo for the current automation tab (set by browser_set_active_tab). If no automation tab exists, behavior depends on 'newWindow' parameter: 'always' creates new tab, 'on-no-automation-tab' (default) creates tab only if needed, 'never' returns error. SAFETY: Never automatically converts user tabs to automation tabs."
     ),
-    arguments: z.object({}),
+    arguments: z.object({
+        newWindow: z.enum(['always', 'on-no-automation-tab', 'never']).optional().default('on-no-automation-tab').describe(
+            "Controls new window creation behavior: 'always' = always create new automation tab, 'on-no-automation-tab' = create only if no automation tab exists (default, safest), 'never' = fail if no automation tab exists"
+        ),
+    }),
     result: z.object({
         success: z.boolean(),
         tab: TabInfoSchema.optional(),
         error: z.string().optional(),
+        wasNewTabCreated: z.boolean().optional().describe("True if a new tab was created for automation"),
     }),
 });
 
