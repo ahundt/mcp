@@ -13,14 +13,43 @@
       padding: 10px;
       font-size: 16px;
     }
+    /* Visible focus ring for accessibility */
+    button:focus {
+      outline: 3px solid #1976d2;
+      outline-offset: 2px;
+      box-shadow: 0 0 0 2px #90caf9;
+    }
+    /* High contrast for color blindness */
+    #connectBtn[aria-disabled="true"], #cancelBtn[aria-disabled="true"] {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body>
-  <h3>Browser MCP</h3>
+  <h3 style="margin-top: 12px; margin-bottom: 16px;">Browser MCP</h3>
+  <!-- Live region for status and warnings (visually hidden, but accessible to screen readers) -->
+  <div id="statusLiveRegion" aria-live="polite" aria-atomic="true" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;">Status will appear here</div>
+
   <div style="display: flex; gap: 8px; align-items: center; justify-content: center;">
-    <button id="connectBtn" style="flex: 1;">Connect</button>
-    <button id="cancelBtn" style="width: 40px; height: 40px; min-width: 40px; min-height: 40px; max-width: 40px; max-height: 40px; padding: 0; font-size: 20px;">❌</button>
+    <button id="connectBtn"
+      tabindex="1"
+      aria-label="Connect/Disconnect"
+      aria-disabled="false"
+      title="Connect or disconnect from the server"
+      style="flex: 1; outline: none; font-size: 16px; padding: 10px;">
+      Connect 🚀
+    </button>
+    <button id="cancelBtn"
+      tabindex="2"
+      aria-label="Cancel (inactive)"
+      aria-disabled="true"
+      title="Cancel or force kill connection"
+      style="width: 40px; height: 40px; min-width: 40px; min-height: 40px; max-width: 40px; max-height: 40px; padding: 0; font-size: 20px; color: #aaa; outline: none;">
+      ⨉
+    </button>
   </div>
+
   <script src="src/popup.ts" type="module"></script>
 </body>
 </html>
